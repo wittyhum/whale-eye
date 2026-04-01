@@ -1,0 +1,209 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import List, Mapping, Sequence
+
+import mysql.connector
+from mysql.connector import pooling
+
+from config import Settings
+
+
+@dataclass(frozen=True)
+class AlertRecord:
+    tx_hash: str
+    from_addr: str
+    to_addr: str
+    eth_value: Decimal
+    direction: str
+
+
+class Database:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self._ensure_database_exists()
+        self.pool = pooling.MySQLConnectionPool(
+            pool_name="whale_eye_pool",
+            pool_size=settings.db_pool_size,
+            host=settings.db_host,
+            port=settings.db_port,
+            user=settings.db_user,
+            password=settings.db_password,
+            database=settings.db_name,
+            autocommit=False,
+        )
+
+    def _ensure_database_exists(self) -> None:
+        connection = mysql.connector.connect(
+            host=self.settings.db_host,
+            port=self.settings.db_port,
+            user=self.settings.db_user,
+            password=self.settings.db_password,
+            autocommit=True,
+        )
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"CREATE DATABASE IF NOT EXISTS `{self.settings.db_name}` CHARACTER SET utf8mb4"
+                )
+        finally:
+            connection.close()
+
+    def _get_connection(self) -> mysql.connector.MySQLConnection:
+        return self.pool.get_connection()
+
+    def init_schema(self) -> None:
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS whales (
+                address VARCHAR(42) PRIMARY KEY,
+                total_eth_out DECIMAL(36, 18),
+                tx_count INT,
+                is_active TINYINT(1) DEFAULT 1,
+                last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_active (is_active)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tx_hash VARCHAR(66) UNIQUE,
+                from_addr VARCHAR(42),
+                to_addr VARCHAR(42),
+                eth_value DECIMAL(36, 18),
+                direction ENUM('Withdrawal', 'Deposit', 'Transfer'),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS sync_state (
+                sync_name VARCHAR(64) PRIMARY KEY,
+                last_success_at TIMESTAMP NULL,
+                last_row_count INT DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+            """,
+        ]
+
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                for statement in statements:
+                    cursor.execute(statement)
+            connection.commit()
+
+    def get_active_addresses(self) -> List[str]:
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT address FROM whales WHERE is_active = 1")
+                rows = cursor.fetchall()
+        return [row[0].lower() for row in rows]
+
+    def save_whale_list(self, rows: Sequence[Mapping[str, object]]) -> int:
+        normalized_rows = [self._normalize_whale_row(row) for row in rows]
+        active_addresses = [row["address"] for row in normalized_rows]
+
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                if normalized_rows:
+                    cursor.executemany(
+                        """
+                        INSERT INTO whales (address, total_eth_out, tx_count, is_active, last_synced)
+                        VALUES (%s, %s, %s, 1, CURRENT_TIMESTAMP)
+                        ON DUPLICATE KEY UPDATE
+                            total_eth_out = VALUES(total_eth_out),
+                            tx_count = VALUES(tx_count),
+                            is_active = 1,
+                            last_synced = CURRENT_TIMESTAMP
+                        """,
+                        [
+                            (
+                                row["address"],
+                                row["total_eth_out"],
+                                row["tx_count"],
+                            )
+                            for row in normalized_rows
+                        ],
+                    )
+
+                if active_addresses:
+                    placeholders = ", ".join(["%s"] * len(active_addresses))
+                    cursor.execute(
+                        f"UPDATE whales SET is_active = 0 WHERE address NOT IN ({placeholders})",
+                        active_addresses,
+                    )
+                else:
+                    cursor.execute("UPDATE whales SET is_active = 0")
+
+            connection.commit()
+
+        return len(normalized_rows)
+
+    def record_sync_success(self, row_count: int) -> None:
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO sync_state (sync_name, last_success_at, last_row_count)
+                    VALUES (%s, CURRENT_TIMESTAMP, %s)
+                    ON DUPLICATE KEY UPDATE
+                        last_success_at = CURRENT_TIMESTAMP,
+                        last_row_count = VALUES(last_row_count)
+                    """,
+                    ("dune_whale_sync", row_count),
+                )
+            connection.commit()
+
+    def get_last_sync_at(self) -> datetime | None:
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT last_success_at FROM sync_state WHERE sync_name = %s",
+                    ("dune_whale_sync",),
+                )
+                row = cursor.fetchone()
+
+        if not row or row[0] is None:
+            return None
+
+        timestamp = row[0]
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=timezone.utc)
+        return timestamp
+
+    def save_alert(self, alert: AlertRecord) -> bool:
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO alerts (tx_hash, from_addr, to_addr, eth_value, direction)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE tx_hash = tx_hash
+                    """,
+                    (
+                        alert.tx_hash,
+                        alert.from_addr,
+                        alert.to_addr,
+                        alert.eth_value,
+                        alert.direction,
+                    ),
+                )
+                inserted = cursor.rowcount == 1
+            connection.commit()
+        return inserted
+
+    @staticmethod
+    def _normalize_whale_row(row: Mapping[str, object]) -> Mapping[str, object]:
+        address = str(row.get("address", "")).strip().lower()
+        if not address.startswith("0x") or len(address) != 42:
+            raise ValueError(f"Invalid address returned from Dune: {address!r}")
+
+        total_eth_out = Decimal(str(row.get("total_eth_out", "0") or "0"))
+        tx_count = int(row.get("tx_count", 0) or 0)
+
+        return {
+            "address": address,
+            "total_eth_out": total_eth_out,
+            "tx_count": tx_count,
+        }
