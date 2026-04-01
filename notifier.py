@@ -4,6 +4,7 @@ import html
 from decimal import Decimal
 
 from aiogram import Bot
+from aiogram.client.session.aiohttp import AiohttpSession
 
 from config import Settings
 from database import AlertRecord
@@ -12,7 +13,8 @@ from database import AlertRecord
 class TelegramNotifier:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.bot = Bot(token=settings.tg_bot_token)
+        session = AiohttpSession(proxy=settings.tg_proxy) if settings.tg_proxy else None
+        self.bot = Bot(token=settings.tg_bot_token, session=session)
 
     async def send_alert(
         self,

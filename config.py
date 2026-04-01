@@ -60,6 +60,7 @@ class Settings:
     alchemy_subscription_type: str
     tg_bot_token: str
     tg_chat_id: str
+    tg_proxy: str
     db_host: str
     db_port: int
     db_user: str
@@ -83,6 +84,7 @@ class Settings:
             alchemy_subscription_type=os.getenv("ALCHEMY_SUBSCRIPTION_TYPE", "alchemy_filteredTransfers").strip(),
             tg_bot_token=_require_env("TG_BOT_TOKEN"),
             tg_chat_id=_require_env("TG_CHAT_ID"),
+            tg_proxy=os.getenv("TG_PROXY", "").strip(),
             db_host=os.getenv("DB_HOST", "localhost").strip(),
             db_port=_int_env("DB_PORT", 3306),
             db_user=os.getenv("DB_USER", "root").strip(),
