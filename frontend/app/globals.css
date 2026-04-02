@@ -7,6 +7,7 @@
   --foreground: #ffffff;
   --primary: #00ffa3;
   --secondary: #ff3b69;
+  --accent-blue: #00d1ff;
 }
 
 body {
@@ -15,75 +16,98 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   overflow-x: hidden;
   background-image: 
-    linear-gradient(rgba(0, 255, 163, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 255, 163, 0.02) 1px, transparent 1px);
-  background-size: 30px 30px;
+    linear-gradient(rgba(0, 255, 163, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 163, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
 }
 
 .glass {
-  background: rgba(13, 17, 23, 0.7);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+  background: rgba(13, 17, 23, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.5);
 }
 
-.cyber-box {
-  position: relative;
-  border: 1px solid rgba(0, 255, 163, 0.2);
-  background: rgba(0, 255, 163, 0.02);
+.cyber-card {
+  @apply relative overflow-hidden bg-[#0d1117]/80 border border-white/5 rounded-lg;
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
 }
 
-.cyber-box::before {
+.cyber-card::before {
   content: "";
   position: absolute;
-  top: -1px;
-  left: -1px;
-  width: 20px;
-  height: 20px;
-  border-top: 2px solid var(--primary);
-  border-left: 2px solid var(--primary);
-}
-
-.cyber-box::after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  right: -1px;
-  width: 20px;
-  height: 20px;
-  border-bottom: 2px solid var(--primary);
-  border-right: 2px solid var(--primary);
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 163, 0.2), transparent);
 }
 
 .neon-text-green {
-  text-shadow: 0 0 15px rgba(0, 255, 163, 0.6);
+  text-shadow: 0 0 10px rgba(0, 255, 163, 0.8), 0 0 20px rgba(0, 255, 163, 0.4);
+}
+
+.neon-text-blue {
+  text-shadow: 0 0 10px rgba(0, 209, 255, 0.8), 0 0 20px rgba(0, 209, 255, 0.4);
 }
 
 .neon-text-red {
-  text-shadow: 0 0 15px rgba(255, 59, 105, 0.6);
+  text-shadow: 0 0 10px rgba(255, 59, 105, 0.8), 0 0 20px rgba(255, 59, 105, 0.4);
+}
+
+.neon-border-green {
+  box-shadow: inset 0 0 10px rgba(0, 255, 163, 0.1), 0 0 5px rgba(0, 255, 163, 0.1);
+  border-color: rgba(0, 255, 163, 0.3);
 }
 
 .scanline {
   width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--primary), transparent);
-  opacity: 0.1;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    transparent 50%,
+    rgba(0, 255, 163, 0.02) 50%
+  );
+  background-size: 100% 4px;
   position: absolute;
-  animation: scan 4s linear infinite;
+  pointer-events: none;
+  z-index: 10;
 }
 
-@keyframes scan {
-  from { top: 0%; }
-  to { top: 100%; }
+@keyframes pulse-glow {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
 }
 
-::-webkit-scrollbar {
+.animate-pulse-glow {
+  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
 }
-::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 163, 0.2);
-  border-radius: 10px;
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 163, 0.3);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 163, 0.5);
+}
+
+/* Radar Animation */
+@keyframes radar-scan {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.radar-gradient {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    rgba(0, 255, 163, 0.2) 100%
+  );
 }

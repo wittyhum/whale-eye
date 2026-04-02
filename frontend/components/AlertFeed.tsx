@@ -3,81 +3,145 @@
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetcher, API_BASE } from "@/lib/fetcher";
-import { ArrowRight, ExternalLink, ShieldAlert } from "lucide-react";
+import { ExternalLink, Zap, ArrowDownLeft, ArrowUpRight, Repeat } from "lucide-react";
 
 export default function AlertFeed() {
   const { data: alerts, error } = useSWR(`${API_BASE}/alerts`, fetcher, {
     refreshInterval: 5000,
   });
 
-  if (error) return <div className="text-red-500 p-6 glass rounded-2xl">实时监控连接异常</div>;
+  const getSemanticInfo = (direction: string) => {
+    switch (direction) {
+      case 'Deposit':
+        return {
+          label: '潜在抛售预警',
+          action: '[Deposit to Binance]',
+          color: 'text-secondary neon-text-red',
+          bgColor: 'bg-secondary/10',
+          borderColor: 'border-secondary/30',
+          icon: <ArrowUpRight className="text-secondary" size={14} />,
+          identColor: 'bg-secondary'
+        };
+      case 'Withdrawal':
+        return {
+          label: '机构囤货信号',
+          action: '[Withdrawal to Whale]',
+          color: 'text-primary neon-text-green',
+          bgColor: 'bg-primary/10',
+          borderColor: 'border-primary/30',
+          icon: <ArrowDownLeft className="text-primary" size={14} />,
+          identColor: 'bg-primary'
+        };
+      default:
+        return {
+          label: '锁仓行为 / Transfer',
+          action: '[Whale to Cold Wallet]',
+          color: 'text-accent-blue neon-text-blue',
+          bgColor: 'bg-accent-blue/10',
+          borderColor: 'border-accent-blue/30',
+          icon: <Repeat className="text-accent-blue" size={14} />,
+          identColor: 'bg-accent-blue'
+        };
+    }
+  };
+
+  if (alerts && alerts.length === 0) {
+    return (
+      <div className="cyber-card flex-1 flex flex-col items-center justify-center p-12 min-h-[400px]">
+        <div className="relative w-48 h-48 mb-8">
+           {/* Radar Scanner */}
+           <div className="absolute inset-0 rounded-full border border-primary/20"></div>
+           <div className="absolute inset-0 rounded-full border border-primary/10 scale-75"></div>
+           <div className="absolute inset-0 rounded-full border border-primary/5 scale-50"></div>
+           <div className="absolute inset-0 radar-gradient rounded-full animate-[radar-scan_4s_linear_infinite]"></div>
+           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 bg-primary rounded-full shadow-[0_0_10px_#00ffa3]"></div>
+        </div>
+        <div className="text-center">
+           <h3 className="text-sm font-black text-primary uppercase tracking-[0.4em] mb-2 animate-pulse">Scanning Mainnet...</h3>
+           <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">CALM ATM. NO WHALE MOVEMENT DETECTED.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="glass rounded-2xl p-6 h-full flex flex-col shadow-2xl border border-white/5">
-      <h2 className="text-xl font-bold mb-6 flex items-center gap-3">
-        <div className="relative">
-          <ShieldAlert className="text-primary" size={24} />
-          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-ping"></span>
-        </div>
-        实时大额异动监控
-      </h2>
+    <div className="cyber-card flex-1 flex flex-col min-h-[400px]">
+      <div className="p-4 border-b border-white/5 flex items-center justify-between bg-white/2">
+        <h2 className="text-xs font-black flex items-center gap-2 text-primary uppercase tracking-[0.2em]">
+          <Zap size={14} className="opacity-50" />
+          资金流向语义化时间轴 / SEMANTIC INTELLIGENCE FEED
+        </h2>
+      </div>
 
-      <div className="flex-1 overflow-y-auto pr-2 space-y-4">
-        <AnimatePresence initial={false}>
-          {alerts?.map((alert: any) => (
-            <motion.div
-              key={alert.tx_hash}
-              initial={{ opacity: 0, x: -20, scale: 0.95 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: 0.3 }}
-              className="glass-hover rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-6 border border-white/5 relative overflow-hidden group"
-            >
-              <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-primary/50 to-transparent"></div>
-              
-              <div className="flex items-center gap-5 w-full md:w-auto">
-                <div className="hidden md:flex flex-col items-center">
-                  <div className={`w-1.5 h-1.5 rounded-full ${alert.direction === 'Deposit' ? 'bg-secondary' : 'bg-primary'}`}></div>
-                  <div className="w-px h-10 bg-gray-800 my-1"></div>
-                  <div className={`w-1.5 h-1.5 rounded-full ${alert.direction === 'Deposit' ? 'bg-secondary' : 'bg-primary'}`}></div>
-                </div>
-                
-                <div className="flex-1">
-                  <div className="flex items-center gap-3">
-                    <span className="text-primary font-mono text-sm bg-primary/5 px-2 py-0.5 rounded border border-primary/10">
-                      {alert.from_addr.slice(0, 8)}...{alert.from_addr.slice(-6)}
-                    </span>
-                    <ArrowRight size={16} className="text-gray-600 group-hover:text-primary transition-colors" />
-                    <span className="text-blue-400 font-mono text-sm bg-blue-500/5 px-2 py-0.5 rounded border border-blue-500/10">
-                      {alert.to_addr.slice(0, 8)}...{alert.to_addr.slice(-6)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-2 text-[11px] text-gray-500">
-                    <span className="font-medium">{new Date(alert.created_at).toLocaleString('zh-CN')}</span>
-                    <span className="w-1 h-1 rounded-full bg-gray-700"></span>
-                    <span className="uppercase tracking-widest">{alert.direction === 'Deposit' ? '交易所充值' : alert.direction === 'Withdrawal' ? '交易所提现' : '大额转账'}</span>
-                  </div>
-                </div>
-              </div>
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 relative">
+        {/* Timeline line */}
+        <div className="absolute left-6 top-4 bottom-4 w-px bg-white/5"></div>
 
-              <div className="flex items-center justify-between w-full md:w-auto md:justify-end gap-8 border-t md:border-t-0 border-white/5 pt-3 md:pt-0">
-                <div className="text-right">
-                  <p className={`text-2xl font-black italic ${alert.direction === 'Deposit' ? 'text-secondary neon-text-red' : 'text-primary neon-text-green'}`}>
-                    {parseFloat(alert.eth_value).toLocaleString()} <span className="text-xs italic font-medium opacity-70">ETH</span>
-                  </p>
-                </div>
-                <a
-                  href={`https://etherscan.io/tx/${alert.tx_hash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-3 bg-white/5 hover:bg-primary/20 rounded-xl transition-all border border-white/5 hover:border-primary/40 group-hover:scale-110"
+        <div className="space-y-4">
+          <AnimatePresence initial={false}>
+            {alerts?.map((alert: any) => {
+              const semantic = getSemanticInfo(alert.direction);
+              const date = new Date(alert.created_at);
+              const timeStr = date.toLocaleTimeString('zh-CN', { hour12: false });
+
+              return (
+                <motion.div
+                  key={alert.tx_hash}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="relative pl-10 group"
                 >
-                  <ExternalLink size={20} className="text-gray-400 group-hover:text-white" />
-                </a>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+                  {/* Timeline dot */}
+                  <div className={`absolute left-[1.125rem] top-2 w-2 h-2 rounded-full border-2 border-[#0d1117] z-10 ${semantic.identColor}`}></div>
+                  
+                  <div className={`flex items-center justify-between p-3 rounded border ${semantic.bgColor} ${semantic.borderColor} transition-all hover:brightness-125`}>
+                    <div className="flex items-center gap-4">
+                       <span className="text-[10px] font-mono text-gray-600 font-bold">{timeStr}</span>
+                       <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded bg-black/40 flex items-center justify-center border border-white/5">
+                             <img 
+                               src={`https://api.dicebear.com/7.x/identicon/svg?seed=${alert.from_addr}`} 
+                               alt="from" 
+                               className="w-4 h-4 opacity-60"
+                             />
+                          </div>
+                          <div className="flex flex-col">
+                             <div className="flex items-center gap-2">
+                                <span className={`text-xs font-black tracking-tight ${semantic.color}`}>{semantic.label}</span>
+                                <span className="text-[10px] font-mono text-gray-400 font-bold">{semantic.action}</span>
+                             </div>
+                             <div className="flex items-center gap-1 text-[9px] text-gray-500 font-bold uppercase mt-0.5">
+                                <span>{parseFloat(alert.eth_value).toLocaleString()} ETH</span>
+                                <span className="opacity-20 mx-1">|</span>
+                                <span>{alert.from_addr.slice(0, 6)}...{alert.from_addr.slice(-4)}</span>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                       <div className="w-6 h-6 rounded bg-black/40 flex items-center justify-center border border-white/5">
+                          <img 
+                            src={`https://api.dicebear.com/7.x/identicon/svg?seed=${alert.to_addr}`} 
+                            alt="to" 
+                            className="w-4 h-4 opacity-60"
+                          />
+                       </div>
+                       <a
+                        href={`https://etherscan.io/tx/${alert.tx_hash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 bg-black/40 hover:bg-primary/20 rounded transition-all border border-white/5 text-gray-500 hover:text-primary"
+                      >
+                        <ExternalLink size={12} />
+                      </a>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );

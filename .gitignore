@@ -5,3 +5,11 @@ __pycache__/
 *.pyd
 .pytest_cache/
 .mypy_cache/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+.next/
+node_modules/
