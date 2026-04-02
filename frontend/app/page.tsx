@@ -1,14 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import useSWR from "swr";
+import { fetcher, API_BASE } from "@/lib/fetcher";
 import SystemIntegrityBar from "@/components/SystemIntegrityBar";
 import WhaleList from "@/components/WhaleList";
 import WhaleDetail from "@/components/WhaleDetail";
 import AlertFeed from "@/components/AlertFeed";
-import SystemDiagnosticsHub from "@/components/SystemDiagnosticsHub";
 
 export default function Home() {
-  const [selectedWhale, setSelectedWhale] = useState<string | null>(null);
+  const [selectedWhale, setSelectedWhale] = useState<any>(null);
+
+  // Fetch initial data to set default selected whale
+  const { data } = useSWR(`${API_BASE}/whales?page=1&size=50`, fetcher);
+
+  useEffect(() => {
+    if (data?.data && data.data.length > 0 && !selectedWhale) {
+      setSelectedWhale(data.data[0]);
+    }
+  }, [data, selectedWhale]);
 
   return (
     <main className="min-h-screen p-6 max-w-[1920px] mx-auto flex flex-col h-screen overflow-hidden">
@@ -17,31 +27,23 @@ export default function Home() {
 
       {/* Main Content: 3-Column Layout */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden min-h-0">
-        
+
         {/* Left Column: Whale Grid (Whale List) - 3/12 width */}
         <div className="lg:col-span-3 flex flex-col overflow-hidden">
           <WhaleList 
             onSelect={setSelectedWhale} 
-            selectedAddress={selectedWhale} 
+            selectedAddress={selectedWhale?.address} 
           />
         </div>
 
         {/* Middle Column: Whale Detail - 3/12 width */}
         <div className="lg:col-span-3 flex flex-col overflow-hidden">
-          <WhaleDetail address={selectedWhale} />
+          <WhaleDetail whale={selectedWhale} />
         </div>
 
-        {/* Right Column: Alerts and Diagnostics - 6/12 width */}
-        <div className="lg:col-span-6 flex flex-col gap-6 overflow-hidden">
-          {/* Top Half: Semantic Intelligence Feed */}
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <AlertFeed />
-          </div>
-
-          {/* Bottom Half: System Diagnostics Hub */}
-          <div className="h-[350px] flex flex-col overflow-hidden">
-            <SystemDiagnosticsHub />
-          </div>
+        {/* Right Column: Semantic Timeline - 6/12 width */}
+        <div className="lg:col-span-6 flex flex-col overflow-hidden">
+          <AlertFeed />
         </div>
       </div>
 

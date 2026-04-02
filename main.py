@@ -77,11 +77,27 @@ async def get_stats():
     return await asyncio.to_thread(app.state.db.get_stats)
 
 
+CEX_MAP = {
+    "0x28c6c06290d514ddd8897310521de05a3918a4b3": "Binance: Hot Wallet",
+    "0x56eddb7aa87536c09ccc2793473599fd21a8b17f": "Binance: Wallet",
+    "0xdfd5293d8e347dfe59e90efd55b2956a1343963d": "Binance: Wallet 2",
+    "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be": "Binance: Cold Wallet",
+}
+
 @app.get("/api/whales")
 async def get_whales(page: int = 1, size: int = 10):
     offset = (page - 1) * size
     data = await asyncio.to_thread(app.state.db.get_top_whales, size, offset)
     total = await asyncio.to_thread(app.state.db.get_whales_count)
+    
+    # Enrich with entity_label
+    for whale in data:
+        addr = whale["address"].lower()
+        if addr in CEX_MAP:
+            whale["entity_label"] = CEX_MAP[addr]
+        else:
+            whale["entity_label"] = "Mega Whale"
+            
     return {"data": data, "total": total, "page": page, "size": size}
 
 

@@ -250,7 +250,7 @@ class Database:
             with connection.cursor(dictionary=True) as cursor:
                 cursor.execute(
                     """
-                    SELECT address, total_eth_out, tx_count, last_synced
+                    SELECT address, total_eth_out, tx_count, last_synced as last_active_time
                     FROM whales
                     WHERE is_active = 1
                     ORDER BY total_eth_out DESC
@@ -261,8 +261,10 @@ class Database:
                 rows = cursor.fetchall()
         for row in rows:
             row["total_eth_out"] = float(row["total_eth_out"])
-            if row["last_synced"]:
-                row["last_synced"] = row["last_synced"].isoformat()
+            if row["last_active_time"]:
+                row["last_active_time"] = row["last_active_time"].isoformat()
+            else:
+                row["last_active_time"] = datetime.now(timezone.utc).isoformat()
         return rows
 
     def get_whales_count(self) -> int:

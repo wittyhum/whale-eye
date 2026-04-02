@@ -1,24 +1,36 @@
 "use client";
 
-import { useMemo } from "react";
-import { Hash, TrendingUp, Wallet, History, Info } from "lucide-react";
+import { Hash, TrendingUp, Wallet, History, Info, Clock } from "lucide-react";
 
 interface WhaleDetailProps {
-  address: string | null;
+  whale: any;
 }
 
-export default function WhaleDetail({ address }: WhaleDetailProps) {
-  if (!address) {
+function formatRelativeTime(isoString: string) {
+  if (!isoString) return "N/A";
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diffInSeconds < 60) return "刚刚";
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}分钟前`;
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}小时前`;
+  return `${Math.floor(diffInSeconds / 86400)}天前`;
+}
+
+export default function WhaleDetail({ whale }: WhaleDetailProps) {
+  if (!whale) {
     return (
       <div className="cyber-card flex-1 flex flex-col items-center justify-center p-8 text-center opacity-30 min-h-[600px]">
         <div className="w-20 h-20 rounded-full border border-dashed border-gray-600 animate-spin-slow mb-6 flex items-center justify-center">
           <Wallet size={32} />
         </div>
         <h3 className="text-sm font-black uppercase tracking-[0.3em]">Select a Whale</h3>
-        <p className="text-[10px] mt-2 font-mono uppercase tracking-widest">To view detailed intelligence</p>
       </div>
     );
   }
+
+  const avgTxValue = whale.tx_count > 0 ? (whale.total_eth_out / whale.tx_count).toFixed(2) : "0.00";
 
   return (
     <div className="cyber-card flex-1 flex flex-col min-h-[600px] overflow-hidden">
@@ -32,66 +44,59 @@ export default function WhaleDetail({ address }: WhaleDetailProps) {
       </div>
 
       <div className="p-6 space-y-8 overflow-y-auto custom-scrollbar">
-        {/* Balance Card */}
+        {/* BALANCE AREA */}
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest">
             <Wallet size={12} className="text-primary" />
-            Balance
+            BALANCE / TOTAL ETH OUT
           </div>
-          <div className="text-3xl font-black italic text-white flex items-baseline gap-2">
-            26,295 <span className="text-xs font-medium text-primary/60 not-italic">ETH</span>
+          <div className="text-4xl font-black italic text-white flex items-baseline gap-2">
+            {whale.total_eth_out.toLocaleString()} <span className="text-xs font-medium text-primary/60 not-italic">ETH</span>
+          </div>
+          <div className="text-[10px] font-bold text-gray-600 uppercase tracking-tighter">
+            ENTITY: <span className="text-primary">{whale.entity_label}</span>
           </div>
         </div>
 
-        {/* History Section */}
+        {/* HISTORY AREA */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 pb-2">
             <History size={12} className="text-primary" />
-            History
+            HISTORY
           </div>
           
-          <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-6">
             <div className="space-y-1">
-              <div className="text-xl font-black text-white font-mono">1,304,385 ETH</div>
-              <div className="text-[9px] text-gray-600 uppercase font-bold tracking-widest">Total Volume</div>
+              <div className="text-2xl font-black text-white font-mono">{whale.tx_count}</div>
+              <div className="text-[9px] text-gray-600 uppercase font-bold tracking-widest">Tx Count</div>
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-3 bg-white/2 rounded border border-white/5">
-                <div className="text-[8px] text-gray-600 uppercase font-bold mb-1">Last Sync 倒计时</div>
-                <div className="text-sm font-black text-primary font-mono">04:22:15</div>
-              </div>
-              <div className="p-3 bg-white/2 rounded border border-white/5">
-                <div className="text-[8px] text-gray-600 uppercase font-bold mb-1">Token (EHR)</div>
-                <div className="text-sm font-black text-white font-mono">0.0683</div>
-              </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-black text-primary font-mono">{avgTxValue}</div>
+              <div className="text-[9px] text-gray-600 uppercase font-bold tracking-widest">Avg Tx Value (ETH)</div>
             </div>
           </div>
         </div>
 
-        {/* Additional Mock Stats */}
+        {/* LAST ACTIVE AREA */}
         <div className="space-y-4 pt-4">
            <div className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 pb-2">
-            <TrendingUp size={12} className="text-primary" />
-            Performance
+            <Clock size={12} className="text-primary" />
+            LAST ACTIVE
           </div>
-          <div className="space-y-3">
-             <div className="flex justify-between items-end border-b border-white/5 pb-2">
-                <span className="text-[9px] text-gray-500 font-bold uppercase">Win Rate</span>
-                <span className="text-xs font-black text-primary">68.5%</span>
-             </div>
-             <div className="flex justify-between items-end border-b border-white/5 pb-2">
-                <span className="text-[9px] text-gray-500 font-bold uppercase">Estimated PnL</span>
-                <span className="text-xs font-black text-accent-blue">+4,250 ETH</span>
+          <div className="flex items-center gap-3">
+             <div className="p-3 bg-white/5 rounded border border-white/5 flex-1">
+                <div className="text-lg font-black text-white font-mono">{formatRelativeTime(whale.last_active_time)}</div>
+                <div className="text-[8px] text-gray-600 uppercase font-bold mt-1 tracking-widest">{whale.last_active_time}</div>
              </div>
           </div>
         </div>
-      </div>
 
-      <div className="mt-auto p-4 bg-black/40 border-t border-white/5">
-         <div className="text-[8px] font-mono text-gray-600 truncate uppercase tracking-widest">
-            Identity: {address}
-         </div>
+        {/* IDENTITY AREA */}
+        <div className="pt-8">
+           <div className="text-[8px] font-mono text-gray-700 break-all uppercase border-t border-white/5 pt-4">
+              Address: {whale.address}
+           </div>
+        </div>
       </div>
     </div>
   );
