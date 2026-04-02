@@ -62,6 +62,7 @@ class Database:
                 total_eth_out DECIMAL(36, 18),
                 tx_count INT,
                 is_active TINYINT(1) DEFAULT 1,
+                last_active_at TIMESTAMP NULL,
                 last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_active (is_active)
             )
@@ -190,6 +191,16 @@ class Database:
                     ),
                 )
                 inserted = cursor.rowcount == 1
+                if inserted:
+                    # Update last_active_at for involved whales
+                    cursor.execute(
+                        "UPDATE whales SET last_active_at = CURRENT_TIMESTAMP WHERE address = %s",
+                        (alert.from_addr,),
+                    )
+                    cursor.execute(
+                        "UPDATE whales SET last_active_at = CURRENT_TIMESTAMP WHERE address = %s",
+                        (alert.to_addr,),
+                    )
             connection.commit()
         return inserted
 
@@ -250,7 +261,8 @@ class Database:
             with connection.cursor(dictionary=True) as cursor:
                 cursor.execute(
                     """
-                    SELECT address, total_eth_out, tx_count, last_synced as last_active_time
+                    SELECT address, total_eth_out, tx_count, 
+                           COALESCE(last_active_at, last_synced) as last_active_time
                     FROM whales
                     WHERE is_active = 1
                     ORDER BY total_eth_out DESC

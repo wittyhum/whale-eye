@@ -12,13 +12,15 @@ export default function Home() {
   const [selectedWhale, setSelectedWhale] = useState<any>(null);
 
   // Fetch initial data to set default selected whale
-  const { data } = useSWR(`${API_BASE}/whales?page=1&size=50`, fetcher);
+  const { data, error, isLoading } = useSWR(`${API_BASE}/whales?page=1&size=50`, fetcher);
 
   useEffect(() => {
     if (data?.data && data.data.length > 0 && !selectedWhale) {
       setSelectedWhale(data.data[0]);
     }
   }, [data, selectedWhale]);
+
+  if (error) return <div className="min-h-screen flex items-center justify-center text-red-500 font-mono">API CONNECTION ERROR</div>;
 
   return (
     <main className="min-h-screen p-6 max-w-[1920px] mx-auto flex flex-col h-screen overflow-hidden">

@@ -1,13 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import useSWR from "swr";
 import { fetcher, API_BASE } from "@/lib/fetcher";
-import { ChevronLeft, ChevronRight, Hash, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, Hash, Clock } from "lucide-react";
 
 interface WhaleListProps {
   onSelect?: (whale: any) => void;
   selectedAddress?: string | null;
+}
+
+function formatRelativeTime(isoString: string) {
+  if (!isoString) return "N/A";
+  try {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (isNaN(diffInSeconds)) return "N/A";
+    if (diffInSeconds < 60) return "刚刚";
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}分钟前`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}小时前`;
+    return `${Math.floor(diffInSeconds / 86400)}天前`;
+  } catch (e) {
+    return "N/A";
+  }
 }
 
 export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps) {
@@ -15,18 +32,29 @@ export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps)
   const pageSize = 10;
   
   // Fetch 50 whales for client-side pagination as per instruction
-  const { data, error } = useSWR(`${API_BASE}/whales?page=1&size=50`, fetcher, {
+  const { data, error, isLoading } = useSWR(`${API_BASE}/whales?page=1&size=50`, fetcher, {
     refreshInterval: 30000,
   });
 
   const allWhales = data?.data || [];
   const totalWhales = allWhales.length;
-  const totalPages = Math.ceil(totalWhales / pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalWhales / pageSize));
   
-  const paginatedWhales = allWhales.slice((page - 1) * pageSize, page * pageSize);
+  const paginatedWhales = useMemo(() => {
+    return allWhales.slice((page - 1) * pageSize, page * pageSize);
+  }, [allWhales, page, pageSize]);
+
+  // Handle case where current page might be out of bounds after data refresh
+  useEffect(() => {
+    if (page > totalPages && totalPages > 0) {
+      setPage(totalPages);
+    }
+  }, [totalPages, page]);
+
+  if (error) return <div className="p-4 text-red-400 text-xs font-mono">LIST_ERROR: {error.message}</div>;
 
   return (
-    <div className="cyber-card flex flex-col h-full min-h-[600px]">
+    <div className="cyber-card flex flex-col h-full">
       <div className="scanline"></div>
       
       <div className="p-4 border-b border-white/5 flex items-center justify-between bg-white/2">
@@ -38,8 +66,18 @@ export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps)
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
         <div className="space-y-2">
-          {paginatedWhales.map((whale: any, index: number) => {
-            const isSelected = selectedAddress === whale.address;
+          {isLoading ? (
+            Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="animate-pulse flex items-center gap-3 p-3 rounded bg-white/5">
+                <div className="w-10 h-10 rounded bg-white/10"></div>
+                <div className="flex-1 space-y-2">
+                   <div className="h-2 bg-white/10 rounded w-1/2"></div>
+                   <div className="h-2 bg-white/10 rounded w-1/4"></div>
+                </div>
+              </div>
+            ))
+          ) : paginatedWhales.map((whale: any, index: number) => {
+            const isSelected = selectedAddress?.toLowerCase() === whale.address?.toLowerCase();
             
             return (
               <div 
@@ -75,12 +113,15 @@ export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps)
                   
                   <div className="flex items-center gap-2 mt-1">
                     <span className={`text-[8px] font-bold uppercase tracking-widest ${isSelected ? 'text-primary' : 'text-gray-500'}`}>
-                       {whale.entity_label}
+                       {whale.entity_label || 'Mega Whale'}
                     </span>
                     <span className="text-gray-700 text-[8px]">•</span>
-                    <span className="text-[8px] text-gray-600 font-bold uppercase">
-                      TX: {whale.tx_count}
-                    </span>
+                    <div className="flex items-center gap-1">
+                       <Clock size={8} className="text-gray-600" />
+                       <span className="text-[8px] text-gray-600 font-bold uppercase">
+                         {formatRelativeTime(whale.last_active_time)}
+                       </span>
+                    </div>
                   </div>
                 </div>
 
@@ -88,7 +129,7 @@ export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps)
                   <p className={`text-sm font-black italic tracking-tighter ${
                     isSelected ? "text-primary neon-text-green" : "text-white"
                   }`}>
-                    {Math.round(whale.total_eth_out).toLocaleString()}
+                    {Math.round(whale.total_eth_out || 0).toLocaleString()}
                   </p>
                   <p className="text-[8px] uppercase text-gray-600 font-bold">ETH OUT</p>
                 </div>
@@ -96,6 +137,12 @@ export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps)
             );
           })}
         </div>
+        
+        {!isLoading && paginatedWhales.length === 0 && (
+           <div className="flex flex-col items-center justify-center py-20 opacity-20">
+             <p className="text-xs font-mono tracking-widest uppercase">No data found</p>
+           </div>
+        )}
       </div>
 
       {/* Pagination Container */}
@@ -108,7 +155,7 @@ export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps)
           <ChevronLeft size={16} />
         </button>
         <div className="text-[10px] font-bold text-gray-500 tracking-[0.2em] uppercase">
-          PAGE <span className="text-primary">{page}</span> OF {totalPages || 5}
+          PAGE <span className="text-primary">{page}</span> OF {totalPages}
         </div>
         <button
           onClick={() => setPage(p => Math.min(totalPages, p + 1))}
