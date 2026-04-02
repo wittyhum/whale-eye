@@ -31,18 +31,18 @@ class TelegramNotifier:
         }
         direction_icon = direction_icons.get(alert.direction, "🚨")
         direction_text = {
-            "Withdrawal": "Exchange Withdrawal",
-            "Deposit": "Exchange Deposit",
-            "Transfer": "Large Transfer",
-            "BuyETH": "Whale Bought ETH",
-            "SellETH": "Whale Sold ETH",
+            "Withdrawal": "巨鲸从交易所提现",
+            "Deposit": "巨鲸向交易所充值",
+            "Transfer": "巨鲸大额转账",
+            "BuyETH": "巨鲸买入 ETH",
+            "SellETH": "巨鲸卖出 ETH",
         }.get(alert.direction, alert.direction)
         message = (
             f"{direction_icon} <b>{html.escape(direction_text)}</b>\n"
-            f"Amount: <b>{self._format_decimal(alert.eth_value)} ETH</b>\n"
-            f"From: <code>{html.escape(self._address_label(alert.from_addr, from_label))}</code>\n"
-            f"To: <code>{html.escape(self._address_label(alert.to_addr, to_label))}</code>\n"
-            f"Tx: <a href=\"https://etherscan.io/tx/{html.escape(alert.tx_hash)}\">"
+            f"金额：<b>{self._format_decimal(alert.eth_value)} ETH</b>\n"
+            f"转出方：<code>{html.escape(self._address_label(alert.from_addr, from_label))}</code>\n"
+            f"转入方：<code>{html.escape(self._address_label(alert.to_addr, to_label))}</code>\n"
+            f"交易：<a href=\"https://etherscan.io/tx/{html.escape(alert.tx_hash)}\">"
             f"{html.escape(self._short_hash(alert.tx_hash))}</a>"
         )
         await self.bot.send_message(
