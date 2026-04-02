@@ -23,6 +23,23 @@ function formatRelativeTime(isoString: string) {
   }
 }
 
+function getPrimaryActivityText(whale: any) {
+  if (whale.last_active_time) {
+    return formatRelativeTime(whale.last_active_time);
+  }
+  return "暂无活跃记录";
+}
+
+function getSecondaryActivityText(whale: any) {
+  if (whale.last_active_time) {
+    return new Date(whale.last_active_time).toLocaleString();
+  }
+  if (whale.last_synced) {
+    return `名单同步时间：${new Date(whale.last_synced).toLocaleString()}`;
+  }
+  return "N/A";
+}
+
 export default function WhaleDetail({ whale }: WhaleDetailProps) {
   if (!whale) {
     return (
@@ -93,9 +110,9 @@ export default function WhaleDetail({ whale }: WhaleDetailProps) {
           </div>
           <div className="flex items-center gap-3">
              <div className="p-3 bg-white/5 rounded border border-white/5 flex-1">
-                <div className="text-lg font-black text-white font-mono">{formatRelativeTime(whale.last_active_time)}</div>
+                <div className="text-lg font-black text-white font-mono">{getPrimaryActivityText(whale)}</div>
                 <div className="text-[8px] text-gray-600 uppercase font-bold mt-1 tracking-widest">
-                   {whale.last_active_time ? new Date(whale.last_active_time).toLocaleString() : 'N/A'}
+                   {getSecondaryActivityText(whale)}
                 </div>
              </div>
           </div>

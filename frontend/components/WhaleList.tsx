@@ -27,6 +27,16 @@ function formatRelativeTime(isoString: string) {
   }
 }
 
+function getActivityLabel(whale: any) {
+  if (whale.last_active_time) {
+    return formatRelativeTime(whale.last_active_time);
+  }
+  if (whale.last_synced) {
+    return `已同步 ${formatRelativeTime(whale.last_synced)}`;
+  }
+  return "暂无活跃记录";
+}
+
 export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps) {
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -119,7 +129,7 @@ export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps)
                     <div className="flex items-center gap-1">
                        <Clock size={8} className="text-gray-600" />
                        <span className="text-[8px] text-gray-600 font-bold uppercase">
-                         {formatRelativeTime(whale.last_active_time)}
+                         {getActivityLabel(whale)}
                        </span>
                     </div>
                   </div>

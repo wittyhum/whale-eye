@@ -38,7 +38,12 @@ async def lifespan(app: FastAPI):
 
     await monitor.load_addresses()
     await sync_engine.start()
-    await sync_engine.sync_if_needed(force=False)
+    try:
+        await sync_engine.sync_if_needed(force=False)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Initial Dune sync failed during startup. The API will continue running and retry on schedule."
+        )
 
     # Start monitor as a background task
     monitor_task = asyncio.create_task(monitor.run())
@@ -90,9 +95,11 @@ async def get_whales(page: int = 1, size: int = 10):
     data = await asyncio.to_thread(app.state.db.get_top_whales, size, offset)
     total = await asyncio.to_thread(app.state.db.get_whales_count)
     
-    # Enrich with entity_label
+    # Fallback enrich with entity_label when Dune did not provide one.
     for whale in data:
         addr = whale["address"].lower()
+        if whale.get("entity_label"):
+            continue
         if addr in CEX_MAP:
             whale["entity_label"] = CEX_MAP[addr]
         else:

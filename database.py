@@ -61,6 +61,7 @@ class Database:
                 address VARCHAR(42) PRIMARY KEY,
                 total_eth_out DECIMAL(36, 18),
                 tx_count INT,
+                entity_label VARCHAR(128) NULL,
                 is_active TINYINT(1) DEFAULT 1,
                 last_active_at TIMESTAMP NULL,
                 last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -92,7 +93,21 @@ class Database:
             with connection.cursor() as cursor:
                 for statement in statements:
                     cursor.execute(statement)
+                self._ensure_whales_columns(cursor)
             connection.commit()
+
+    @staticmethod
+    def _ensure_whales_columns(cursor) -> None:
+        alter_statements = [
+            "ALTER TABLE whales ADD COLUMN entity_label VARCHAR(128) NULL",
+            "ALTER TABLE whales ADD COLUMN last_active_at TIMESTAMP NULL",
+        ]
+        for statement in alter_statements:
+            try:
+                cursor.execute(statement)
+            except mysql.connector.Error as exc:
+                if exc.errno != 1060:
+                    raise
 
     def get_active_addresses(self) -> List[str]:
         with self._get_connection() as connection:
@@ -110,12 +125,26 @@ class Database:
                 if normalized_rows:
                     cursor.executemany(
                         """
-                        INSERT INTO whales (address, total_eth_out, tx_count, is_active, last_synced)
-                        VALUES (%s, %s, %s, 1, CURRENT_TIMESTAMP)
+                        INSERT INTO whales (
+                            address,
+                            total_eth_out,
+                            tx_count,
+                            entity_label,
+                            is_active,
+                            last_active_at,
+                            last_synced
+                        )
+                        VALUES (%s, %s, %s, %s, 1, %s, CURRENT_TIMESTAMP)
                         ON DUPLICATE KEY UPDATE
                             total_eth_out = VALUES(total_eth_out),
                             tx_count = VALUES(tx_count),
+                            entity_label = VALUES(entity_label),
                             is_active = 1,
+                            last_active_at = CASE
+                                WHEN VALUES(last_active_at) IS NULL THEN last_active_at
+                                WHEN last_active_at IS NULL THEN VALUES(last_active_at)
+                                ELSE GREATEST(last_active_at, VALUES(last_active_at))
+                            END,
                             last_synced = CURRENT_TIMESTAMP
                         """,
                         [
@@ -123,6 +152,8 @@ class Database:
                                 row["address"],
                                 row["total_eth_out"],
                                 row["tx_count"],
+                                row["entity_label"],
+                                row["last_active_at"],
                             )
                             for row in normalized_rows
                         ],
@@ -261,8 +292,13 @@ class Database:
             with connection.cursor(dictionary=True) as cursor:
                 cursor.execute(
                     """
-                    SELECT address, total_eth_out, tx_count, 
-                           COALESCE(last_active_at, last_synced) as last_active_time
+                    SELECT
+                        address,
+                        total_eth_out,
+                        tx_count,
+                        entity_label,
+                        last_active_at,
+                        last_synced
                     FROM whales
                     WHERE is_active = 1
                     ORDER BY total_eth_out DESC
@@ -273,10 +309,8 @@ class Database:
                 rows = cursor.fetchall()
         for row in rows:
             row["total_eth_out"] = float(row["total_eth_out"])
-            if row["last_active_time"]:
-                row["last_active_time"] = row["last_active_time"].isoformat()
-            else:
-                row["last_active_time"] = datetime.now(timezone.utc).isoformat()
+            row["last_active_time"] = self._to_iso_or_none(row.get("last_active_at"))
+            row["last_synced"] = self._to_iso_or_none(row.get("last_synced"))
         return rows
 
     def get_whales_count(self) -> int:
@@ -293,9 +327,48 @@ class Database:
 
         total_eth_out = Decimal(str(row.get("total_eth_out", "0") or "0"))
         tx_count = int(row.get("tx_count", 0) or 0)
+        entity_label = str(row.get("entity_label", "") or "").strip() or None
+        last_active_at = Database._normalize_datetime_value(row.get("last_active_time"))
 
         return {
             "address": address,
             "total_eth_out": total_eth_out,
             "tx_count": tx_count,
+            "entity_label": entity_label,
+            "last_active_at": last_active_at,
         }
+
+    @staticmethod
+    def _normalize_datetime_value(value: object) -> datetime | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.endswith(" UTC"):
+            text = text[:-4] + "+00:00"
+        elif text.endswith(" GMT"):
+            text = text[:-4] + "+00:00"
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            return parsed
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    @staticmethod
+    def _to_iso_or_none(value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            else:
+                value = value.astimezone(timezone.utc)
+            return value.isoformat()
+        return str(value)

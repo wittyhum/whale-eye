@@ -77,9 +77,9 @@ class WhaleSyncEngine:
         if DuneClient is not None:
             try:
                 client = DuneClient(api_key=self.settings.dune_api_key)
-                try:
-                    result = client.run_query(query_id=self.settings.dune_query_id)
-                except TypeError:
+                if hasattr(client, "get_latest_result"):
+                    result = client.get_latest_result(self.settings.dune_query_id)
+                else:
                     result = client.run_query(self.settings.dune_query_id)
                 return self._extract_rows(result)
             except Exception as exc:  # pragma: no cover
@@ -89,16 +89,36 @@ class WhaleSyncEngine:
 
     def _fetch_with_http(self) -> Sequence[Mapping[str, object]]:
         request = Request(
-            url=f"https://api.dune.com/api/v1/query/{self.settings.dune_query_id}/results",
-            headers={"X-Dune-API-Key": self.settings.dune_api_key},
+            url=(
+                f"https://api.dune.com/api/v1/query/{self.settings.dune_query_id}/results"
+                "?allow_partial_results=true"
+            ),
+            headers={
+                "X-Dune-API-Key": self.settings.dune_api_key,
+                "Accept": "application/json",
+                "User-Agent": "whale-eye/1.0",
+            },
         )
         try:
             with urlopen(request, timeout=30) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError) as exc:  # pragma: no cover
+        except HTTPError as exc:  # pragma: no cover
+            body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"Failed to fetch Dune query result: HTTP {exc.code} {exc.reason}. Response: {body}"
+            ) from exc
+        except URLError as exc:  # pragma: no cover
             raise RuntimeError(f"Failed to fetch Dune query result: {exc}") from exc
 
         rows = payload.get("result", {}).get("rows", [])
+        error = payload.get("error")
+        state = payload.get("state")
+        if error:
+            raise RuntimeError(f"Dune query returned an error: {error}")
+        if state and state not in {"QUERY_STATE_COMPLETED", "QUERY_STATE_COMPLETED_PARTIAL"}:
+            raise RuntimeError(f"Dune query is not ready yet. Current state: {state}")
+        if not rows:
+            logger.warning("Dune latest result returned zero rows. Payload keys: %s", list(payload.keys()))
         return [self._normalize_source_row(row) for row in rows]
 
     def _extract_rows(self, result: Any) -> Sequence[Mapping[str, object]]:
@@ -143,4 +163,6 @@ class WhaleSyncEngine:
             "address": str(address).lower(),
             "total_eth_out": Decimal(str(key_map.get("total_eth_out", key_map.get("eth_out", "0")) or "0")),
             "tx_count": int(key_map.get("tx_count", key_map.get("count", 0)) or 0),
+            "last_active_time": key_map.get("last_active_time") or key_map.get("last_tx_at"),
+            "entity_label": key_map.get("entity_label"),
         }
