@@ -59,7 +59,11 @@ class Database:
             """
             CREATE TABLE IF NOT EXISTS whales (
                 address VARCHAR(42) PRIMARY KEY,
+                total_eth_in DECIMAL(36, 18) DEFAULT 0,
                 total_eth_out DECIMAL(36, 18),
+                net_flow DECIMAL(36, 18) DEFAULT 0,
+                in_tx_count INT DEFAULT 0,
+                out_tx_count INT DEFAULT 0,
                 tx_count INT,
                 entity_label VARCHAR(128) NULL,
                 is_active TINYINT(1) DEFAULT 1,
@@ -75,7 +79,7 @@ class Database:
                 from_addr VARCHAR(42),
                 to_addr VARCHAR(42),
                 eth_value DECIMAL(36, 18),
-                direction ENUM('Withdrawal', 'Deposit', 'Transfer'),
+                direction VARCHAR(32),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """,
@@ -94,12 +98,17 @@ class Database:
                 for statement in statements:
                     cursor.execute(statement)
                 self._ensure_whales_columns(cursor)
+                self._ensure_alerts_columns(cursor)
             connection.commit()
 
     @staticmethod
     def _ensure_whales_columns(cursor) -> None:
         alter_statements = [
+            "ALTER TABLE whales ADD COLUMN total_eth_in DECIMAL(36, 18) DEFAULT 0 AFTER address",
             "ALTER TABLE whales ADD COLUMN entity_label VARCHAR(128) NULL",
+            "ALTER TABLE whales ADD COLUMN net_flow DECIMAL(36, 18) DEFAULT 0 AFTER total_eth_out",
+            "ALTER TABLE whales ADD COLUMN in_tx_count INT DEFAULT 0 AFTER net_flow",
+            "ALTER TABLE whales ADD COLUMN out_tx_count INT DEFAULT 0 AFTER in_tx_count",
             "ALTER TABLE whales ADD COLUMN last_active_at TIMESTAMP NULL",
         ]
         for statement in alter_statements:
@@ -108,6 +117,10 @@ class Database:
             except mysql.connector.Error as exc:
                 if exc.errno != 1060:
                     raise
+
+    @staticmethod
+    def _ensure_alerts_columns(cursor) -> None:
+        cursor.execute("ALTER TABLE alerts MODIFY COLUMN direction VARCHAR(32)")
 
     def get_active_addresses(self) -> List[str]:
         with self._get_connection() as connection:
@@ -127,16 +140,24 @@ class Database:
                         """
                         INSERT INTO whales (
                             address,
+                            total_eth_in,
                             total_eth_out,
+                            net_flow,
+                            in_tx_count,
+                            out_tx_count,
                             tx_count,
                             entity_label,
                             is_active,
                             last_active_at,
                             last_synced
                         )
-                        VALUES (%s, %s, %s, %s, 1, %s, CURRENT_TIMESTAMP)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, %s, CURRENT_TIMESTAMP)
                         ON DUPLICATE KEY UPDATE
+                            total_eth_in = VALUES(total_eth_in),
                             total_eth_out = VALUES(total_eth_out),
+                            net_flow = VALUES(net_flow),
+                            in_tx_count = VALUES(in_tx_count),
+                            out_tx_count = VALUES(out_tx_count),
                             tx_count = VALUES(tx_count),
                             entity_label = VALUES(entity_label),
                             is_active = 1,
@@ -150,7 +171,11 @@ class Database:
                         [
                             (
                                 row["address"],
+                                row["total_eth_in"],
                                 row["total_eth_out"],
+                                row["net_flow"],
+                                row["in_tx_count"],
+                                row["out_tx_count"],
                                 row["tx_count"],
                                 row["entity_label"],
                                 row["last_active_at"],
@@ -246,8 +271,18 @@ class Database:
                 cursor.execute(
                     """
                     SELECT
-                        SUM(CASE WHEN direction = 'Withdrawal' THEN eth_value ELSE 0 END) -
-                        SUM(CASE WHEN direction = 'Deposit' THEN eth_value ELSE 0 END) as netflow
+                        SUM(
+                            CASE
+                                WHEN direction IN ('Withdrawal', 'BuyETH') THEN eth_value
+                                ELSE 0
+                            END
+                        ) -
+                        SUM(
+                            CASE
+                                WHEN direction IN ('Deposit', 'SellETH') THEN eth_value
+                                ELSE 0
+                            END
+                        ) as netflow
                     FROM alerts
                     WHERE created_at >= NOW() - INTERVAL 1 DAY
                     """
@@ -294,21 +329,27 @@ class Database:
                     """
                     SELECT
                         address,
+                        total_eth_in,
                         total_eth_out,
+                        net_flow,
+                        in_tx_count,
+                        out_tx_count,
                         tx_count,
                         entity_label,
                         last_active_at,
                         last_synced
                     FROM whales
                     WHERE is_active = 1
-                    ORDER BY total_eth_out DESC
+                    ORDER BY ABS(net_flow) DESC, total_eth_out DESC
                     LIMIT %s OFFSET %s
                     """,
                     (limit, offset),
                 )
                 rows = cursor.fetchall()
         for row in rows:
+            row["total_eth_in"] = float(row["total_eth_in"])
             row["total_eth_out"] = float(row["total_eth_out"])
+            row["net_flow"] = float(row["net_flow"])
             row["last_active_time"] = self._to_iso_or_none(row.get("last_active_at"))
             row["last_synced"] = self._to_iso_or_none(row.get("last_synced"))
         return rows
@@ -326,13 +367,21 @@ class Database:
             raise ValueError(f"Invalid address returned from Dune: {address!r}")
 
         total_eth_out = Decimal(str(row.get("total_eth_out", "0") or "0"))
+        total_eth_in = Decimal(str(row.get("total_eth_in", "0") or "0"))
+        net_flow = Decimal(str(row.get("net_flow", "0") or "0"))
+        in_tx_count = int(row.get("in_tx_count", 0) or 0)
+        out_tx_count = int(row.get("out_tx_count", 0) or 0)
         tx_count = int(row.get("tx_count", 0) or 0)
         entity_label = str(row.get("entity_label", "") or "").strip() or None
         last_active_at = Database._normalize_datetime_value(row.get("last_active_time"))
 
         return {
             "address": address,
+            "total_eth_in": total_eth_in,
             "total_eth_out": total_eth_out,
+            "net_flow": net_flow,
+            "in_tx_count": in_tx_count,
+            "out_tx_count": out_tx_count,
             "tx_count": tx_count,
             "entity_label": entity_label,
             "last_active_at": last_active_at,

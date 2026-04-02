@@ -6,6 +6,7 @@ Whale-Eye 是一个基于 Python 3.10 的 Web3 巨鲸实时预警系统，主要
 - 将监控地址池持久化到 MySQL
 - 通过 Alchemy WebSocket 实时监听大额链上转账
 - 将符合条件的预警消息推送到 Telegram
+- 支持第一版 `稳定币 <-> WETH/ETH` 买卖语义识别
 - 所有 ETH 金额统一使用 `Decimal` 处理，避免精度丢失
 
 ## 项目功能
@@ -16,7 +17,8 @@ Whale-Eye 是一个基于 Python 3.10 的 Web3 巨鲸实时预警系统，主要
 2. `database.py` 将名单写入 MySQL，并维护活跃地址状态
 3. `monitor.py` 通过 Alchemy WebSocket 持续监听相关地址交易
 4. 当交易金额达到阈值时，`notifier.py` 会向 Telegram 发送告警
-5. `main.py` 负责组装并启动整个服务
+5. 系统会对部分交易进行语义识别，输出 `BuyETH` / `SellETH` / `Deposit` / `Withdrawal`
+6. `main.py` 负责组装并启动整个服务
 
 ## 运行环境
 
@@ -59,6 +61,7 @@ pip install -r requirements.txt
 - `DUNE_API_KEY`：Dune API Key
 - `DUNE_QUERY_ID`：Dune 查询 ID
 - `ALCHEMY_WSS_URL`：Alchemy WebSocket 地址
+- `ALCHEMY_HTTP_URL`：Alchemy HTTP RPC 地址，可留空并由程序根据 WSS 地址自动推导
 - `TG_BOT_TOKEN`：Telegram 机器人 Token
 - `TG_CHAT_ID`：接收告警的聊天 ID
 - `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME`：MySQL 连接信息
@@ -105,6 +108,8 @@ python main.py
 - 仅当交易金额大于等于 `ETH_THRESHOLD` 时才会触发预警
 - 如果转出地址是交易所、转入地址是巨鲸地址，则识别为 `Withdrawal`
 - 如果转出地址是巨鲸地址、转入地址是交易所，则识别为 `Deposit`
+- 如果巨鲸使用稳定币换入 `WETH/ETH`，则识别为 `BuyETH`
+- 如果巨鲸卖出 `WETH/ETH` 换成稳定币，则识别为 `SellETH`
 - 其他情况识别为 `Transfer`
 
 ## 注意事项

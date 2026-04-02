@@ -37,6 +37,13 @@ function getActivityLabel(whale: any) {
   return "暂无活跃记录";
 }
 
+function formatFlow(value: number) {
+  const rounded = Math.round(value || 0).toLocaleString();
+  if (value > 0) return `+${rounded}`;
+  if (value < 0) return `-${Math.abs(Math.round(value || 0)).toLocaleString()}`;
+  return rounded;
+}
+
 export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps) {
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -122,26 +129,33 @@ export default function WhaleList({ onSelect, selectedAddress }: WhaleListProps)
                   </div>
                   
                   <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-[8px] font-bold uppercase tracking-widest ${isSelected ? 'text-primary' : 'text-gray-500'}`}>
-                       {whale.entity_label || 'Mega Whale'}
-                    </span>
+                     <span className={`text-[8px] font-bold uppercase tracking-widest ${isSelected ? 'text-primary' : 'text-gray-500'}`}>
+                        {whale.entity_label || 'Mega Whale'}
+                     </span>
                     <span className="text-gray-700 text-[8px]">•</span>
                     <div className="flex items-center gap-1">
                        <Clock size={8} className="text-gray-600" />
-                       <span className="text-[8px] text-gray-600 font-bold uppercase">
-                         {getActivityLabel(whale)}
-                       </span>
-                    </div>
+                        <span className="text-[8px] text-gray-600 font-bold uppercase">
+                          {getActivityLabel(whale)}
+                        </span>
+                     </div>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-[8px] text-gray-600 font-bold uppercase tracking-wider">
+                    <span>IN {Math.round(whale.total_eth_in || 0).toLocaleString()}</span>
+                    <span>OUT {Math.round(whale.total_eth_out || 0).toLocaleString()}</span>
+                    <span>TX {whale.tx_count || 0}</span>
                   </div>
                 </div>
 
                 <div className="text-right">
                   <p className={`text-sm font-black italic tracking-tighter ${
-                    isSelected ? "text-primary neon-text-green" : "text-white"
+                    whale.net_flow >= 0
+                      ? (isSelected ? "text-primary neon-text-green" : "text-white")
+                      : "text-red-400"
                   }`}>
-                    {Math.round(whale.total_eth_out || 0).toLocaleString()}
+                    {formatFlow(whale.net_flow || 0)}
                   </p>
-                  <p className="text-[8px] uppercase text-gray-600 font-bold">ETH OUT</p>
+                  <p className="text-[8px] uppercase text-gray-600 font-bold">NET FLOW</p>
                 </div>
               </div>
             );

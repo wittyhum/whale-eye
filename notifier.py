@@ -26,10 +26,19 @@ class TelegramNotifier:
             "Withdrawal": "🏦",
             "Deposit": "🏦",
             "Transfer": "🚨",
+            "BuyETH": "🟢",
+            "SellETH": "🔴",
         }
         direction_icon = direction_icons.get(alert.direction, "🚨")
+        direction_text = {
+            "Withdrawal": "Exchange Withdrawal",
+            "Deposit": "Exchange Deposit",
+            "Transfer": "Large Transfer",
+            "BuyETH": "Whale Bought ETH",
+            "SellETH": "Whale Sold ETH",
+        }.get(alert.direction, alert.direction)
         message = (
-            f"{direction_icon} <b>{html.escape(alert.direction)}</b>\n"
+            f"{direction_icon} <b>{html.escape(direction_text)}</b>\n"
             f"Amount: <b>{self._format_decimal(alert.eth_value)} ETH</b>\n"
             f"From: <code>{html.escape(self._address_label(alert.from_addr, from_label))}</code>\n"
             f"To: <code>{html.escape(self._address_label(alert.to_addr, to_label))}</code>\n"

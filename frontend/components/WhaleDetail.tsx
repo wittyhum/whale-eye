@@ -53,9 +53,20 @@ export default function WhaleDetail({ whale }: WhaleDetailProps) {
     );
   }
 
+  const totalEthIn = whale.total_eth_in || 0;
   const totalEthOut = whale.total_eth_out || 0;
+  const netFlow = whale.net_flow || 0;
+  const inTxCount = whale.in_tx_count || 0;
+  const outTxCount = whale.out_tx_count || 0;
   const txCount = whale.tx_count || 0;
-  const avgTxValue = txCount > 0 ? (totalEthOut / txCount).toFixed(2) : "0.00";
+  const totalVolume = totalEthIn + totalEthOut;
+  const avgTxValue = txCount > 0 ? (totalVolume / txCount).toFixed(2) : "0.00";
+  const formattedNetFlow =
+    netFlow > 0
+      ? `+${netFlow.toLocaleString()}`
+      : netFlow < 0
+        ? `-${Math.abs(netFlow).toLocaleString()}`
+        : netFlow.toLocaleString();
 
   return (
     <div className="cyber-card flex-1 flex flex-col h-full overflow-hidden">
@@ -73,10 +84,10 @@ export default function WhaleDetail({ whale }: WhaleDetailProps) {
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest">
             <Wallet size={12} className="text-primary" />
-            BALANCE / TOTAL ETH OUT
+            NET ETH FLOW
           </div>
-          <div className="text-4xl font-black italic text-white flex items-baseline gap-2">
-            {totalEthOut.toLocaleString()} <span className="text-xs font-medium text-primary/60 not-italic">ETH</span>
+          <div className={`text-4xl font-black italic flex items-baseline gap-2 ${netFlow >= 0 ? "text-primary" : "text-red-400"}`}>
+            {formattedNetFlow} <span className="text-xs font-medium text-primary/60 not-italic">ETH</span>
           </div>
           <div className="text-[10px] font-bold text-gray-600 uppercase tracking-tighter">
             ENTITY: <span className="text-primary">{whale.entity_label || 'Mega Whale'}</span>
@@ -98,6 +109,22 @@ export default function WhaleDetail({ whale }: WhaleDetailProps) {
             <div className="space-y-1">
               <div className="text-2xl font-black text-primary font-mono">{avgTxValue}</div>
               <div className="text-[9px] text-gray-600 uppercase font-bold tracking-widest">Avg Value (ETH)</div>
+            </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-black text-white font-mono">{totalEthIn.toLocaleString()}</div>
+              <div className="text-[9px] text-gray-600 uppercase font-bold tracking-widest">ETH In</div>
+            </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-black text-white font-mono">{totalEthOut.toLocaleString()}</div>
+              <div className="text-[9px] text-gray-600 uppercase font-bold tracking-widest">ETH Out</div>
+            </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-black text-primary font-mono">{inTxCount}</div>
+              <div className="text-[9px] text-gray-600 uppercase font-bold tracking-widest">In Tx Count</div>
+            </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-black text-primary font-mono">{outTxCount}</div>
+              <div className="text-[9px] text-gray-600 uppercase font-bold tracking-widest">Out Tx Count</div>
             </div>
           </div>
         </div>

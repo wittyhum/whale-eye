@@ -5,40 +5,30 @@ import { motion, AnimatePresence } from "framer-motion";
 import { fetcher, API_BASE } from "@/lib/fetcher";
 import { ExternalLink, Zap, ArrowDownLeft, ArrowUpRight, Repeat, ShieldAlert } from "lucide-react";
 
-const CEX_MAP: Record<string, string> = {
-  "0x28c6c06290d514ddd8897310521de05a3918a4b3": "Binance: Hot Wallet",
-  "0x56eddb7aa87536c09ccc2793473599fd21a8b17f": "Binance: Wallet",
-  "0xdfd5293d8e347dfe59e90efd55b2956a1343963d": "Binance: Wallet 2",
-  "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be": "Binance: Cold Wallet",
-};
-
 export default function AlertFeed() {
   const { data: alerts, error } = useSWR(`${API_BASE}/alerts`, fetcher, {
     refreshInterval: 5000,
   });
 
-  const getSemanticInfo = (from: string, to: string) => {
-    const fromLower = from.toLowerCase();
-    const toLower = to.toLowerCase();
-    
-    if (CEX_MAP[toLower]) {
-        return {
-          title: "🚨 巨鲸充值：抛售预警",
-          color: "text-secondary neon-text-red",
-          bgColor: "bg-secondary/10",
-          borderColor: "border-secondary/30",
-          icon: <ArrowUpRight className="text-secondary" size={14} />
-        };
+  const getSemanticInfo = (direction: string) => {
+    if (direction === "SellETH" || direction === "Deposit") {
+      return {
+        title: direction === "SellETH" ? "🔴 巨鲸卖出 ETH" : "🚨 巨鲸充值：抛售预警",
+        color: "text-secondary neon-text-red",
+        bgColor: "bg-secondary/10",
+        borderColor: "border-secondary/30",
+        icon: <ArrowUpRight className="text-secondary" size={14} />
+      };
     }
-    
-    if (CEX_MAP[fromLower]) {
-        return {
-          title: "🏦 巨鲸提现：机构囤货",
-          color: "text-primary neon-text-green",
-          bgColor: "bg-primary/10",
-          borderColor: "border-primary/30",
-          icon: <ArrowDownLeft className="text-primary" size={14} />
-        };
+
+    if (direction === "BuyETH" || direction === "Withdrawal") {
+      return {
+        title: direction === "BuyETH" ? "🟢 巨鲸买入 ETH" : "🏦 巨鲸提现：机构囤货",
+        color: "text-primary neon-text-green",
+        bgColor: "bg-primary/10",
+        borderColor: "border-primary/30",
+        icon: <ArrowDownLeft className="text-primary" size={14} />
+      };
     }
 
     return {
@@ -82,7 +72,7 @@ export default function AlertFeed() {
         <div className="space-y-6">
           <AnimatePresence initial={false}>
             {alerts?.map((alert: any) => {
-              const semantic = getSemanticInfo(alert.from_addr, alert.to_addr);
+              const semantic = getSemanticInfo(alert.direction);
               const timeStr = new Date(alert.created_at).toLocaleTimeString('zh-CN', { hour12: false });
 
               return (

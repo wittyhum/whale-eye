@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
 import websockets
+from web3 import Web3
 
 from config import Settings
 from database import AlertRecord, Database
@@ -15,6 +17,31 @@ from notifier import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 WEI_IN_ETH = Decimal("1000000000000000000")
+TRANSFER_TOPIC = Web3.keccak(text="Transfer(address,address,uint256)").hex().lower()
+WETH_ADDRESS = "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".lower()
+TOKEN_METADATA = {
+    WETH_ADDRESS: {"symbol": "WETH", "decimals": 18},
+    "0xdac17f958d2ee523a2206206994597c13d831ec7": {"symbol": "USDT", "decimals": 6},
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": {"symbol": "USDC", "decimals": 6},
+    "0x6b175474e89094c44da98b954eedeac495271d0f": {"symbol": "DAI", "decimals": 18},
+    "0x4c9edd5852cd905f086c759e8383e09bff1e68b3": {"symbol": "USDe", "decimals": 18},
+    "0xdc035d45d973e3ec169d2276ddab16f1e407384f": {"symbol": "USDS", "decimals": 18},
+    "0x0000000000085d4780b73119b644ae5ecd22b376": {"symbol": "TUSD", "decimals": 18},
+    "0x853d955acef822db058eb8505911ed77f175b99e": {"symbol": "FRAX", "decimals": 18},
+    "0x5f98805a4e8be255a32880fdec7f6728c6568ba0": {"symbol": "LUSD", "decimals": 18},
+    "0x6c3ea9036406852006290770bedfcaba0e23a0e8": {"symbol": "PYUSD", "decimals": 6},
+}
+STABLECOIN_ADDRESSES = {
+    address
+    for address, meta in TOKEN_METADATA.items()
+    if meta["symbol"] in {"USDT", "USDC", "DAI", "USDe", "USDS", "TUSD", "FRAX", "LUSD", "PYUSD"}
+}
+
+
+@dataclass(frozen=True)
+class SemanticSignal:
+    direction: str
+    eth_value: Decimal
 
 
 class WhaleMonitor:
@@ -25,6 +52,7 @@ class WhaleMonitor:
         self._addresses: set[str] = set()
         self._address_lock = asyncio.Lock()
         self._resubscribe_event = asyncio.Event()
+        self.web3 = Web3(Web3.HTTPProvider(self._alchemy_http_url(settings), request_kwargs={"timeout": 30}))
 
     async def load_addresses(self) -> None:
         addresses = await asyncio.to_thread(self.db.get_active_addresses)
@@ -85,7 +113,7 @@ class WhaleMonitor:
 
     def _build_subscription_requests(self, addresses: Sequence[str]) -> list[dict[str, object]]:
         filter_base = {
-            "category": ["external"],
+            "category": ["external", "erc20"],
         }
         return [
             {
@@ -139,11 +167,24 @@ class WhaleMonitor:
         if from_addr not in addresses and to_addr not in addresses:
             return
 
-        eth_value = self._extract_eth_value(transfer)
-        if eth_value < self.settings.eth_threshold:
-            return
+        transfer_eth_value = self._extract_eth_value(transfer)
+        semantic_signal = await asyncio.to_thread(
+            self._classify_transaction_semantics,
+            tx_hash,
+            from_addr,
+            to_addr,
+            addresses,
+            transfer_eth_value,
+        )
+        if semantic_signal is not None:
+            eth_value = semantic_signal.eth_value
+            direction = semantic_signal.direction
+        else:
+            eth_value = transfer_eth_value
+            if eth_value < self.settings.eth_threshold:
+                return
+            direction = self._detect_direction(from_addr, to_addr, addresses)
 
-        direction = self._detect_direction(from_addr, to_addr, addresses)
         alert = AlertRecord(
             tx_hash=tx_hash,
             from_addr=from_addr,
@@ -174,6 +215,75 @@ class WhaleMonitor:
             return "Deposit"
         return "Transfer"
 
+    def _classify_transaction_semantics(
+        self,
+        tx_hash: str,
+        from_addr: str,
+        to_addr: str,
+        monitored_addresses: set[str],
+        transfer_eth_value: Decimal,
+    ) -> SemanticSignal | None:
+        if from_addr in self.settings.known_exchanges and to_addr in monitored_addresses:
+            return None
+        if from_addr in monitored_addresses and to_addr in self.settings.known_exchanges:
+            return None
+
+        try:
+            receipt = self.web3.eth.get_transaction_receipt(tx_hash)
+        except Exception as exc:
+            logger.debug("Failed to fetch transaction receipt for %s: %s", tx_hash, exc)
+            return None
+
+        token_transfers = self._extract_token_transfers(receipt)
+        if not token_transfers:
+            return None
+
+        whale_address = from_addr if from_addr in monitored_addresses else to_addr
+        weth_in = Decimal("0")
+        weth_out = Decimal("0")
+        stable_in = Decimal("0")
+        stable_out = Decimal("0")
+
+        for transfer in token_transfers:
+            token = transfer["token"]
+            amount = transfer["amount"]
+            sender = transfer["from"]
+            recipient = transfer["to"]
+
+            if sender == whale_address:
+                if token == WETH_ADDRESS:
+                    weth_out += amount
+                if token in STABLECOIN_ADDRESSES:
+                    stable_out += amount
+
+            if recipient == whale_address:
+                if token == WETH_ADDRESS:
+                    weth_in += amount
+                if token in STABLECOIN_ADDRESSES:
+                    stable_in += amount
+
+        if stable_out > 0 and weth_in >= self.settings.eth_threshold:
+            return SemanticSignal(direction="BuyETH", eth_value=weth_in)
+
+        if weth_out >= self.settings.eth_threshold and stable_in > 0:
+            return SemanticSignal(direction="SellETH", eth_value=weth_out)
+
+        if (
+            transfer_eth_value >= self.settings.eth_threshold
+            and to_addr in monitored_addresses
+            and stable_out > 0
+        ):
+            return SemanticSignal(direction="BuyETH", eth_value=transfer_eth_value)
+
+        if (
+            transfer_eth_value >= self.settings.eth_threshold
+            and from_addr in monitored_addresses
+            and stable_in > 0
+        ):
+            return SemanticSignal(direction="SellETH", eth_value=transfer_eth_value)
+
+        return None
+
     @staticmethod
     def _extract_transfer(payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
         if "params" in payload and isinstance(payload["params"], Mapping):
@@ -189,6 +299,68 @@ class WhaleMonitor:
                 return result["transaction"]
             return result
         return None
+
+    @staticmethod
+    def _alchemy_http_url(settings: Settings) -> str:
+        if settings.alchemy_http_url:
+            return settings.alchemy_http_url
+        if settings.alchemy_wss_url.startswith("wss://"):
+            return "https://" + settings.alchemy_wss_url[len("wss://") :]
+        if settings.alchemy_wss_url.startswith("ws://"):
+            return "http://" + settings.alchemy_wss_url[len("ws://") :]
+        return settings.alchemy_wss_url
+
+    @staticmethod
+    def _extract_address_from_topic(topic: str) -> str:
+        normalized = topic.lower()
+        if normalized.startswith("0x"):
+            normalized = normalized[2:]
+        return "0x" + normalized[-40:]
+
+    @staticmethod
+    def _token_amount(raw_value: str, decimals: int) -> Decimal:
+        if not raw_value:
+            return Decimal("0")
+        value_int = int(raw_value, 16) if raw_value.startswith("0x") else int(raw_value)
+        return Decimal(value_int) / (Decimal(10) ** decimals)
+
+    def _extract_token_transfers(self, receipt: Mapping[str, Any]) -> list[dict[str, Any]]:
+        logs = receipt.get("logs", [])
+        transfers: list[dict[str, Any]] = []
+        for log in logs:
+            if not isinstance(log, Mapping):
+                continue
+            topics = log.get("topics") or []
+            if len(topics) < 3:
+                continue
+            topic0 = topics[0]
+            if isinstance(topic0, bytes):
+                topic0 = topic0.hex()
+            topic0 = str(topic0).lower()
+            if topic0 != TRANSFER_TOPIC:
+                continue
+
+            token_address = str(log.get("address", "")).lower()
+            metadata = TOKEN_METADATA.get(token_address)
+            if metadata is None:
+                continue
+
+            sender_topic = topics[1]
+            recipient_topic = topics[2]
+            if isinstance(sender_topic, bytes):
+                sender_topic = sender_topic.hex()
+            if isinstance(recipient_topic, bytes):
+                recipient_topic = recipient_topic.hex()
+
+            transfers.append(
+                {
+                    "token": token_address,
+                    "from": self._extract_address_from_topic(str(sender_topic)),
+                    "to": self._extract_address_from_topic(str(recipient_topic)),
+                    "amount": self._token_amount(str(log.get("data", "0x0")), int(metadata["decimals"])),
+                }
+            )
+        return transfers
 
     @staticmethod
     def _extract_eth_value(transfer: Mapping[str, Any]) -> Decimal:

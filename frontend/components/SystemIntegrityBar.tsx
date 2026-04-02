@@ -86,7 +86,7 @@ export default function SystemIntegrityBar() {
             <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Watchlist Active</div>
           </div>
           <div className="flex items-center gap-3 ml-5">
-            <span className="text-xl font-black text-white font-mono leading-none">{stats?.active_whales || 50}</span>
+            <span className="text-xl font-black text-white font-mono leading-none">{stats?.active_whales ?? 0}</span>
             <div className="flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
               <div className="w-1 h-1 bg-primary rounded-full animate-pulse"></div>
               <span className="text-[8px] text-primary font-bold uppercase tracking-widest">Active</span>

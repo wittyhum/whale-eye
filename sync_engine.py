@@ -161,7 +161,11 @@ class WhaleSyncEngine:
 
         return {
             "address": str(address).lower(),
+            "total_eth_in": Decimal(str(key_map.get("total_eth_in", key_map.get("eth_in", "0")) or "0")),
             "total_eth_out": Decimal(str(key_map.get("total_eth_out", key_map.get("eth_out", "0")) or "0")),
+            "net_flow": Decimal(str(key_map.get("net_flow", "0") or "0")),
+            "in_tx_count": int(key_map.get("in_tx_count", 0) or 0),
+            "out_tx_count": int(key_map.get("out_tx_count", 0) or 0),
             "tx_count": int(key_map.get("tx_count", key_map.get("count", 0)) or 0),
             "last_active_time": key_map.get("last_active_time") or key_map.get("last_tx_at"),
             "entity_label": key_map.get("entity_label"),
