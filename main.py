@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
+
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from config import Settings
 from database import Database
@@ -17,7 +22,8 @@ def configure_logging(level: str) -> None:
     )
 
 
-async def async_main() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     settings = Settings.from_env()
     configure_logging(settings.log_level)
 
@@ -26,18 +32,68 @@ async def async_main() -> None:
 
     notifier = TelegramNotifier(settings)
     monitor = WhaleMonitor(db=db, notifier=notifier, settings=settings)
-    sync_engine = WhaleSyncEngine(db=db, settings=settings, on_sync_success=monitor.request_reload)
+    sync_engine = WhaleSyncEngine(
+        db=db, settings=settings, on_sync_success=monitor.request_reload
+    )
 
     await monitor.load_addresses()
     await sync_engine.start()
     await sync_engine.sync_if_needed(force=False)
 
+    # Start monitor as a background task
+    monitor_task = asyncio.create_task(monitor.run())
+
+    app.state.db = db
+    app.state.monitor = monitor
+    app.state.sync_engine = sync_engine
+    app.state.notifier = notifier
+
+    yield
+
+    # Shutdown
+    monitor_task.cancel()
     try:
-        await monitor.run()
-    finally:
-        await sync_engine.shutdown()
-        await notifier.close()
+        await monitor_task
+    except asyncio.CancelledError:
+        pass
+    await sync_engine.shutdown()
+    await notifier.close()
+
+
+app = FastAPI(title="Whale-Eye API", lifespan=lifespan)
+
+# Enable CORS for frontend development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/api/stats")
+async def get_stats():
+    return await asyncio.to_thread(app.state.db.get_stats)
+
+
+@app.get("/api/whales")
+async def get_whales(page: int = 1, size: int = 10):
+    offset = (page - 1) * size
+    data = await asyncio.to_thread(app.state.db.get_top_whales, size, offset)
+    total = await asyncio.to_thread(app.state.db.get_whales_count)
+    return {"data": data, "total": total, "page": page, "size": size}
+
+
+@app.get("/api/alerts")
+async def get_alerts(limit: int = 50):
+    return await asyncio.to_thread(app.state.db.get_latest_alerts, limit)
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 
 if __name__ == "__main__":
-    asyncio.run(async_main())
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -193,6 +193,84 @@ class Database:
             connection.commit()
         return inserted
 
+    def get_stats(self) -> dict:
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                # Active whale count
+                cursor.execute("SELECT COUNT(*) FROM whales WHERE is_active = 1")
+                active_whales = cursor.fetchone()[0]
+
+                # 24H Netflow (Withdrawal - Deposit)
+                cursor.execute(
+                    """
+                    SELECT
+                        SUM(CASE WHEN direction = 'Withdrawal' THEN eth_value ELSE 0 END) -
+                        SUM(CASE WHEN direction = 'Deposit' THEN eth_value ELSE 0 END) as netflow
+                    FROM alerts
+                    WHERE created_at >= NOW() - INTERVAL 1 DAY
+                    """
+                )
+                netflow = cursor.fetchone()[0] or 0
+
+                # Last sync time
+                cursor.execute(
+                    "SELECT last_success_at FROM sync_state WHERE sync_name = %s",
+                    ("dune_whale_sync",),
+                )
+                last_sync = cursor.fetchone()
+                last_sync_at = last_sync[0] if last_sync else None
+
+        return {
+            "active_whales": active_whales,
+            "netflow_24h": float(netflow),
+            "last_sync_at": last_sync_at,
+        }
+
+    def get_latest_alerts(self, limit: int = 50) -> List[dict]:
+        with self._get_connection() as connection:
+            with connection.cursor(dictionary=True) as cursor:
+                cursor.execute(
+                    """
+                    SELECT tx_hash, from_addr, to_addr, eth_value, direction, created_at
+                    FROM alerts
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+        for row in rows:
+            row["eth_value"] = float(row["eth_value"])
+            if row["created_at"]:
+                row["created_at"] = row["created_at"].isoformat()
+        return rows
+
+    def get_top_whales(self, limit: int = 10, offset: int = 0) -> List[dict]:
+        with self._get_connection() as connection:
+            with connection.cursor(dictionary=True) as cursor:
+                cursor.execute(
+                    """
+                    SELECT address, total_eth_out, tx_count, last_synced
+                    FROM whales
+                    WHERE is_active = 1
+                    ORDER BY total_eth_out DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (limit, offset),
+                )
+                rows = cursor.fetchall()
+        for row in rows:
+            row["total_eth_out"] = float(row["total_eth_out"])
+            if row["last_synced"]:
+                row["last_synced"] = row["last_synced"].isoformat()
+        return rows
+
+    def get_whales_count(self) -> int:
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM whales WHERE is_active = 1")
+                return cursor.fetchone()[0]
+
     @staticmethod
     def _normalize_whale_row(row: Mapping[str, object]) -> Mapping[str, object]:
         address = str(row.get("address", "")).strip().lower()
