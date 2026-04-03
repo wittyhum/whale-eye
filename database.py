@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Mapping, Sequence
 
@@ -297,10 +297,41 @@ class Database:
                 last_sync = cursor.fetchone()
                 last_sync_at = last_sync[0] if last_sync else None
 
+                seconds_until_next_sync = None
+                if last_sync_at is not None:
+                    cursor.execute(
+                        f"""
+                        SELECT GREATEST(
+                            TIMESTAMPDIFF(
+                                SECOND,
+                                NOW(),
+                                DATE_ADD(last_success_at, INTERVAL {int(self.settings.sync_interval_hours)} HOUR)
+                            ),
+                            0
+                        )
+                        FROM sync_state
+                        WHERE sync_name = %s
+                        """,
+                        ("dune_whale_sync",),
+                    )
+                    remaining_row = cursor.fetchone()
+                    seconds_until_next_sync = remaining_row[0] if remaining_row else 0
+
+        next_sync_at = None
+        if last_sync_at is not None:
+            if last_sync_at.tzinfo is None:
+                last_sync_at = last_sync_at.replace(tzinfo=timezone.utc)
+            else:
+                last_sync_at = last_sync_at.astimezone(timezone.utc)
+            next_sync_at = last_sync_at + timedelta(hours=self.settings.sync_interval_hours)
+
         return {
             "active_whales": active_whales,
             "netflow_24h": float(netflow),
-            "last_sync_at": last_sync_at,
+            "last_sync_at": self._to_iso_or_none(last_sync_at),
+            "next_sync_at": self._to_iso_or_none(next_sync_at),
+            "seconds_until_next_sync": seconds_until_next_sync,
+            "sync_interval_hours": self.settings.sync_interval_hours,
         }
 
     def get_latest_alerts(self, limit: int = 50) -> List[dict]:

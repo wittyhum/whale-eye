@@ -5,36 +5,50 @@ import useSWR from "swr";
 import { fetcher, API_BASE } from "@/lib/fetcher";
 import { Clock, ShieldCheck, Zap } from "lucide-react";
 
+function formatCountdownFromSeconds(totalSeconds?: number | null, intervalHours: number = 12) {
+  if (totalSeconds === undefined || totalSeconds === null) {
+    return `${intervalHours.toString().padStart(2, "0")}:00:00`;
+  }
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  return `${hours.toString().padStart(2, "0")}:${minutes
+    .toString()
+    .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+}
+
 export default function SystemIntegrityBar() {
   const { data: stats } = useSWR(`${API_BASE}/stats`, fetcher, {
     refreshInterval: 30000,
   });
 
-  const [ping, setPing] = useState(24);
-  const [countdown, setCountdown] = useState("04:22:15");
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setPing(Math.floor(Math.random() * (45 - 15) + 15));
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    if (typeof stats?.seconds_until_next_sync === "number") {
+      setCountdownSeconds(stats.seconds_until_next_sync);
+    }
+  }, [stats?.seconds_until_next_sync]);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      const parts = countdown.split(":").map(Number);
-      let s = parts[2] - 1;
-      let m = parts[1];
-      let h = parts[0];
-      if (s < 0) { s = 59; m -= 1; }
-      if (m < 0) { m = 59; h -= 1; }
-      if (h < 0) { h = 11; m = 59; s = 59; }
-      setCountdown(
-        `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-      );
+      setCountdownSeconds((prev) => {
+        if (prev === null || prev <= 0) {
+          return prev;
+        }
+        return prev - 1;
+      });
     }, 1000);
     return () => clearInterval(timer);
-  }, [countdown]);
+  }, []);
+
+  const countdown = formatCountdownFromSeconds(
+    countdownSeconds,
+    stats?.sync_interval_hours ?? 12
+  );
+  const ping = stats?.wss_ping_ms ?? "--";
 
   return (
     <div className="flex flex-col lg:flex-row items-center gap-6 mb-8">

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
@@ -52,6 +53,7 @@ class WhaleMonitor:
         self._addresses: set[str] = set()
         self._address_lock = asyncio.Lock()
         self._resubscribe_event = asyncio.Event()
+        self._last_ping_ms: int | None = None
         self.web3 = Web3(Web3.HTTPProvider(self._alchemy_http_url(settings), request_kwargs={"timeout": 30}))
 
     async def load_addresses(self) -> None:
@@ -91,6 +93,7 @@ class WhaleMonitor:
 
             reload_task = asyncio.create_task(self._watch_reload(websocket))
             periodic_refresh_task = asyncio.create_task(self._periodic_refresh())
+            ping_task = asyncio.create_task(self._ping_loop(websocket))
 
             try:
                 async for message in websocket:
@@ -99,7 +102,10 @@ class WhaleMonitor:
             finally:
                 reload_task.cancel()
                 periodic_refresh_task.cancel()
-                await asyncio.gather(reload_task, periodic_refresh_task, return_exceptions=True)
+                ping_task.cancel()
+                await asyncio.gather(
+                    reload_task, periodic_refresh_task, ping_task, return_exceptions=True
+                )
 
     async def _subscribe(self, websocket: websockets.WebSocketClientProtocol) -> None:
         addresses = await self._address_snapshot()
@@ -151,6 +157,17 @@ class WhaleMonitor:
                 logger.info("Whale address set changed. Re-subscribing websocket filters.")
                 self._resubscribe_event.set()
                 return
+
+    async def _ping_loop(self, websocket: websockets.WebSocketClientProtocol) -> None:
+        while True:
+            await asyncio.sleep(10)
+            started_at = time.perf_counter()
+            pong_waiter = await websocket.ping()
+            await pong_waiter
+            self._last_ping_ms = max(1, int((time.perf_counter() - started_at) * 1000))
+
+    def get_last_ping_ms(self) -> int | None:
+        return self._last_ping_ms
 
     async def _handle_message(self, payload: Mapping[str, Any]) -> None:
         transfer = self._extract_transfer(payload)

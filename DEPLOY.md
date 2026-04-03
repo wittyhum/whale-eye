@@ -82,11 +82,14 @@ DUNE_API_KEY=你的真实DuneKey
 DUNE_QUERY_ID=6931437
 
 ALCHEMY_WSS_URL=wss://eth-mainnet.g.alchemy.com/v2/你的真实AlchemyKey
+ALCHEMY_HTTP_URL=https://eth-mainnet.g.alchemy.com/v2/你的真实AlchemyKey
 ALCHEMY_SUBSCRIPTION_METHOD=alchemy_subscribe
 ALCHEMY_SUBSCRIPTION_TYPE=alchemy_filteredTransfers
+NEXT_PUBLIC_API_BASE_URL=http://你的服务器公网IP:8000/api
 
 TG_BOT_TOKEN=你的真实TelegramBotToken
 TG_CHAT_ID=你的真实TelegramChatId
+TG_PROXY=http://host.docker.internal:7890
 
 DB_HOST=host.docker.internal
 DB_PORT=3306
@@ -109,6 +112,8 @@ KNOWN_EXCHANGES_JSON={}
 - 如果数据库部署在当前服务器宿主机上，`DB_HOST` 建议写成 `host.docker.internal`
 - 当前 `docker-compose.yml` 已通过 `extra_hosts` 将 `host.docker.internal` 映射到宿主机
 - 如果使用云数据库，请把 `DB_HOST` 改成对应数据库地址
+- 如果 Telegram 只能通过宿主机代理访问，`TG_PROXY` 建议写成 `http://host.docker.internal:7890`
+- `NEXT_PUBLIC_API_BASE_URL` 必须写成服务器可访问的后端地址，不能写成浏览器本机的 `localhost`
 
 ## 四、构建并启动容器
 
@@ -135,7 +140,7 @@ docker compose ps
 查看应用日志：
 
 ```bash
-docker compose logs -f app
+docker compose logs -f backend
 ```
 
 如果启动正常，你会看到类似日志：
@@ -177,7 +182,13 @@ docker compose up -d --build
 重启应用容器：
 
 ```bash
-docker compose restart app
+docker compose restart backend
+```
+
+重启前端容器：
+
+```bash
+docker compose restart frontend
 ```
 
 ## 八、安全建议
@@ -197,7 +208,7 @@ docker compose restart app
 执行：
 
 ```bash
-docker compose logs -f app
+docker compose logs -f backend
 ```
 
 常见原因：

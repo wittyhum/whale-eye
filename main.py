@@ -79,7 +79,9 @@ app.add_middleware(
 
 @app.get("/api/stats")
 async def get_stats():
-    return await asyncio.to_thread(app.state.db.get_stats)
+    stats = await asyncio.to_thread(app.state.db.get_stats)
+    stats["wss_ping_ms"] = app.state.monitor.get_last_ping_ms()
+    return stats
 
 
 CEX_MAP = {
