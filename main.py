@@ -37,13 +37,13 @@ async def lifespan(app: FastAPI):
     )
 
     await monitor.load_addresses()
-    await sync_engine.start()
     try:
         await sync_engine.sync_if_needed(force=False)
     except Exception:
         logging.getLogger(__name__).exception(
             "Initial Dune sync failed during startup. The API will continue running and retry on schedule."
         )
+    await sync_engine.start()
 
     # Start monitor as a background task
     monitor_task = asyncio.create_task(monitor.run())

@@ -39,6 +39,8 @@ class WhaleSyncEngine:
         if self.scheduler.running:
             return
 
+        next_run_time = await self._resolve_next_run_time()
+
         self.scheduler.add_job(
             self.sync_if_needed,
             "interval",
@@ -46,6 +48,7 @@ class WhaleSyncEngine:
             id="dune_whale_sync",
             max_instances=1,
             coalesce=True,
+            next_run_time=next_run_time,
         )
         self.scheduler.start()
 
@@ -72,6 +75,17 @@ class WhaleSyncEngine:
         if self.on_sync_success:
             await self.on_sync_success()
         return True
+
+    async def _resolve_next_run_time(self) -> datetime:
+        now = datetime.now(timezone.utc)
+        last_sync_at = await asyncio.to_thread(self.db.get_last_sync_at)
+        if last_sync_at is None:
+            return now
+
+        next_due_at = last_sync_at + timedelta(hours=self.settings.sync_interval_hours)
+        if next_due_at <= now:
+            return now
+        return next_due_at
 
     def _fetch_whale_rows(self) -> Sequence[Mapping[str, object]]:
         if DuneClient is not None:
