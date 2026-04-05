@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Awaitable, Callable, Iterable, List, Mapping, Sequence
@@ -16,11 +17,31 @@ from database import Database
 
 try:
     from dune_client.client import DuneClient
+    from dune_client.query import QueryBase
 except ImportError:  # pragma: no cover
     DuneClient = None
+    QueryBase = None
 
 
 logger = logging.getLogger(__name__)
+EXECUTION_POLL_INTERVAL_SECONDS = 5
+EXECUTION_TIMEOUT_SECONDS = 300
+TERMINAL_STATES = {
+    "QUERY_STATE_COMPLETED",
+    "QUERY_STATE_COMPLETED_PARTIAL",
+    "QUERY_STATE_FAILED",
+    "QUERY_STATE_CANCELLED",
+    "QUERY_STATE_EXPIRED",
+}
+SUCCESS_STATES = {
+    "QUERY_STATE_COMPLETED",
+    "QUERY_STATE_COMPLETED_PARTIAL",
+}
+FAILED_STATES = {
+    "QUERY_STATE_FAILED",
+    "QUERY_STATE_CANCELLED",
+    "QUERY_STATE_EXPIRED",
+}
 
 
 class WhaleSyncEngine:
@@ -88,52 +109,108 @@ class WhaleSyncEngine:
         return next_due_at
 
     def _fetch_whale_rows(self) -> Sequence[Mapping[str, object]]:
-        if DuneClient is not None:
+        if DuneClient is not None and QueryBase is not None:
             try:
                 client = DuneClient(api_key=self.settings.dune_api_key)
-                if hasattr(client, "get_latest_result"):
-                    result = client.get_latest_result(self.settings.dune_query_id)
-                else:
-                    result = client.run_query(self.settings.dune_query_id)
+                result = self._execute_with_client(client)
                 return self._extract_rows(result)
             except Exception as exc:  # pragma: no cover
-                logger.warning("Dune client fetch failed, falling back to HTTP API: %s", exc)
+                logger.warning("Dune client execution failed, falling back to HTTP API: %s", exc)
 
-        return self._fetch_with_http()
+        return self._fetch_with_http_execution()
 
-    def _fetch_with_http(self) -> Sequence[Mapping[str, object]]:
-        request = Request(
-            url=(
-                f"https://api.dune.com/api/v1/query/{self.settings.dune_query_id}/results"
-                "?allow_partial_results=true"
-            ),
-            headers={
-                "X-Dune-API-Key": self.settings.dune_api_key,
-                "Accept": "application/json",
-                "User-Agent": "whale-eye/1.0",
-            },
+    def _execute_with_client(self, client: DuneClient) -> Any:
+        query = QueryBase(query_id=self.settings.dune_query_id, name="whale-eye-sync")
+        execution = client.execute(query)
+        execution_id = execution.execution_id
+        logger.info("Triggered Dune query execution %s for query %s.", execution_id, self.settings.dune_query_id)
+        deadline = time.monotonic() + EXECUTION_TIMEOUT_SECONDS
+
+        while True:
+            status = client.get_execution_status(execution_id)
+            state = self._state_value(status.state)
+            if state in SUCCESS_STATES:
+                result = client.get_execution_results(execution_id, allow_partial_results="true")
+                return result
+            if state in FAILED_STATES:
+                error = getattr(status, "error", None)
+                raise RuntimeError(
+                    f"Dune query execution failed with state {state}. Error: {error}"
+                )
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Dune query execution {execution_id} timed out after {EXECUTION_TIMEOUT_SECONDS} seconds."
+                )
+            time.sleep(EXECUTION_POLL_INTERVAL_SECONDS)
+
+    def _fetch_with_http_execution(self) -> Sequence[Mapping[str, object]]:
+        execution = self._request_json(
+            url=f"https://api.dune.com/api/v1/query/{self.settings.dune_query_id}/execute",
+            method="POST",
+            payload={},
         )
+        execution_id = execution.get("execution_id")
+        if not execution_id:
+            raise RuntimeError(f"Dune execute query did not return execution_id: {execution}")
+
+        logger.info("Triggered Dune query execution %s for query %s.", execution_id, self.settings.dune_query_id)
+        deadline = time.monotonic() + EXECUTION_TIMEOUT_SECONDS
+
+        while True:
+            status = self._request_json(
+                url=f"https://api.dune.com/api/v1/execution/{execution_id}/status",
+                method="GET",
+            )
+            state = str(status.get("state") or "").strip()
+            if state in SUCCESS_STATES:
+                result = self._request_json(
+                    url=f"https://api.dune.com/api/v1/execution/{execution_id}/results?allow_partial_results=true",
+                    method="GET",
+                )
+                rows = result.get("result", {}).get("rows", [])
+                if not rows:
+                    logger.warning("Dune execution result returned zero rows. Payload keys: %s", list(result.keys()))
+                return [self._normalize_source_row(row) for row in rows]
+            if state in FAILED_STATES:
+                raise RuntimeError(
+                    f"Dune query execution failed with state {state}. Payload: {status}"
+                )
+            if state not in TERMINAL_STATES and not state:
+                raise RuntimeError(f"Dune execution status missing state. Payload: {status}")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Dune query execution {execution_id} timed out after {EXECUTION_TIMEOUT_SECONDS} seconds."
+                )
+            time.sleep(EXECUTION_POLL_INTERVAL_SECONDS)
+
+    def _request_json(self, url: str, method: str, payload: Mapping[str, object] | None = None) -> dict[str, Any]:
+        headers = {
+            "X-Dune-API-Key": self.settings.dune_api_key,
+            "Accept": "application/json",
+            "User-Agent": "whale-eye/1.0",
+        }
+        data = None
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(payload).encode("utf-8")
+
+        request = Request(url=url, headers=headers, method=method, data=data)
         try:
             with urlopen(request, timeout=30) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:  # pragma: no cover
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(
-                f"Failed to fetch Dune query result: HTTP {exc.code} {exc.reason}. Response: {body}"
+                f"Failed to call Dune API: HTTP {exc.code} {exc.reason}. Response: {body}"
             ) from exc
         except URLError as exc:  # pragma: no cover
-            raise RuntimeError(f"Failed to fetch Dune query result: {exc}") from exc
+            raise RuntimeError(f"Failed to call Dune API: {exc}") from exc
 
-        rows = payload.get("result", {}).get("rows", [])
-        error = payload.get("error")
-        state = payload.get("state")
-        if error:
-            raise RuntimeError(f"Dune query returned an error: {error}")
-        if state and state not in {"QUERY_STATE_COMPLETED", "QUERY_STATE_COMPLETED_PARTIAL"}:
-            raise RuntimeError(f"Dune query is not ready yet. Current state: {state}")
-        if not rows:
-            logger.warning("Dune latest result returned zero rows. Payload keys: %s", list(payload.keys()))
-        return [self._normalize_source_row(row) for row in rows]
+    @staticmethod
+    def _state_value(state: Any) -> str:
+        if state is None:
+            return ""
+        return str(getattr(state, "value", state)).strip()
 
     def _extract_rows(self, result: Any) -> Sequence[Mapping[str, object]]:
         if result is None:
