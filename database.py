@@ -297,33 +297,18 @@ class Database:
                 last_sync = cursor.fetchone()
                 last_sync_at = last_sync[0] if last_sync else None
 
-                seconds_until_next_sync = None
-                if last_sync_at is not None:
-                    cursor.execute(
-                        f"""
-                        SELECT GREATEST(
-                            TIMESTAMPDIFF(
-                                SECOND,
-                                NOW(),
-                                DATE_ADD(last_success_at, INTERVAL {int(self.settings.sync_interval_hours)} HOUR)
-                            ),
-                            0
-                        )
-                        FROM sync_state
-                        WHERE sync_name = %s
-                        """,
-                        ("dune_whale_sync",),
-                    )
-                    remaining_row = cursor.fetchone()
-                    seconds_until_next_sync = remaining_row[0] if remaining_row else 0
-
         next_sync_at = None
+        seconds_until_next_sync = None
         if last_sync_at is not None:
             if last_sync_at.tzinfo is None:
                 last_sync_at = last_sync_at.replace(tzinfo=timezone.utc)
             else:
                 last_sync_at = last_sync_at.astimezone(timezone.utc)
             next_sync_at = last_sync_at + timedelta(hours=self.settings.sync_interval_hours)
+            seconds_until_next_sync = max(
+                0,
+                int((next_sync_at - datetime.now(timezone.utc)).total_seconds()),
+            )
 
         return {
             "active_whales": active_whales,
