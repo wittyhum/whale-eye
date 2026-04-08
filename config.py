@@ -68,8 +68,12 @@ class Settings:
     db_password: str
     db_name: str
     db_pool_size: int
-    eth_threshold: Decimal
+    record_threshold_eth: Decimal
+    telegram_buy_sell_threshold_eth: Decimal
+    telegram_exchange_flow_threshold_eth: Decimal
+    telegram_transfer_threshold_eth: Decimal
     sync_interval_hours: int
+    watchlist_retention_days: int
     address_refresh_seconds: int
     reconnect_max_seconds: int
     log_level: str
@@ -93,8 +97,12 @@ class Settings:
             db_password=os.getenv("DB_PASSWORD", "123456"),
             db_name=os.getenv("DB_NAME", "whale_eye").strip(),
             db_pool_size=_int_env("DB_POOL_SIZE", 5),
-            eth_threshold=_decimal_env("ETH_THRESHOLD", "500"),
+            record_threshold_eth=_decimal_env("RECORD_THRESHOLD_ETH", "50"),
+            telegram_buy_sell_threshold_eth=_decimal_env("TELEGRAM_BUY_SELL_THRESHOLD_ETH", "100"),
+            telegram_exchange_flow_threshold_eth=_decimal_env("TELEGRAM_EXCHANGE_FLOW_THRESHOLD_ETH", "300"),
+            telegram_transfer_threshold_eth=_decimal_env("TELEGRAM_TRANSFER_THRESHOLD_ETH", "500"),
             sync_interval_hours=_int_env("SYNC_INTERVAL_HOURS", 12),
+            watchlist_retention_days=_int_env("WATCHLIST_RETENTION_DAYS", 7),
             address_refresh_seconds=_int_env("ADDRESS_REFRESH_SECONDS", 300),
             reconnect_max_seconds=_int_env("RECONNECT_MAX_SECONDS", 60),
             log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),

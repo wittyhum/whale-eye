@@ -52,7 +52,10 @@ class Database:
             connection.close()
 
     def _get_connection(self) -> mysql.connector.MySQLConnection:
-        return self.pool.get_connection()
+        connection = self.pool.get_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("SET time_zone = '+00:00'")
+        return connection
 
     def init_schema(self) -> None:
         statements = [
@@ -123,9 +126,17 @@ class Database:
         cursor.execute("ALTER TABLE alerts MODIFY COLUMN direction VARCHAR(32)")
 
     def get_active_addresses(self) -> List[str]:
+        watchlist_cutoff = datetime.now(timezone.utc) - timedelta(days=self.settings.watchlist_retention_days)
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SELECT address FROM whales WHERE is_active = 1")
+                cursor.execute(
+                    """
+                    SELECT address
+                    FROM whales
+                    WHERE last_synced IS NOT NULL AND last_synced >= %s
+                    """,
+                    (watchlist_cutoff,),
+                )
                 rows = cursor.fetchall()
         return [row[0].lower() for row in rows]
 
@@ -263,8 +274,16 @@ class Database:
     def get_stats(self) -> dict:
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
-                # Active whale count
-                cursor.execute("SELECT COUNT(*) FROM whales WHERE is_active = 1")
+                # Watchlist count: keep addresses observed in Dune results within the retention window.
+                watchlist_cutoff = datetime.now(timezone.utc) - timedelta(days=self.settings.watchlist_retention_days)
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM whales
+                    WHERE last_synced IS NOT NULL AND last_synced >= %s
+                    """,
+                    (watchlist_cutoff,),
+                )
                 active_whales = cursor.fetchone()[0]
 
                 # 24H Netflow (Withdrawal - Deposit)

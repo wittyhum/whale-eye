@@ -198,9 +198,10 @@ class WhaleMonitor:
             direction = semantic_signal.direction
         else:
             eth_value = transfer_eth_value
-            if eth_value < self.settings.eth_threshold:
-                return
             direction = self._detect_direction(from_addr, to_addr, addresses)
+
+        if eth_value < self.settings.record_threshold_eth:
+            return
 
         alert = AlertRecord(
             tx_hash=tx_hash,
@@ -213,12 +214,15 @@ class WhaleMonitor:
         if not inserted:
             return
 
-        await self.notifier.send_alert(
-            alert,
-            from_label=self.settings.known_exchanges.get(from_addr),
-            to_label=self.settings.known_exchanges.get(to_addr),
-        )
-        logger.info("Alert pushed for tx %s (%s ETH).", tx_hash, eth_value)
+        if self._should_push_telegram(alert):
+            await self.notifier.send_alert(
+                alert,
+                from_label=self.settings.known_exchanges.get(from_addr),
+                to_label=self.settings.known_exchanges.get(to_addr),
+            )
+            logger.info("Alert pushed for tx %s (%s ETH).", tx_hash, eth_value)
+        else:
+            logger.info("Alert recorded without Telegram push for tx %s (%s ETH).", tx_hash, eth_value)
 
     async def _address_snapshot(self) -> set[str]:
         async with self._address_lock:
@@ -231,6 +235,17 @@ class WhaleMonitor:
         if from_addr in monitored_addresses and to_addr in known_exchanges:
             return "Deposit"
         return "Transfer"
+
+    def _should_push_telegram(self, alert: AlertRecord) -> bool:
+        threshold = self._telegram_threshold(alert.direction)
+        return alert.eth_value >= threshold
+
+    def _telegram_threshold(self, direction: str) -> Decimal:
+        if direction in {"BuyETH", "SellETH"}:
+            return self.settings.telegram_buy_sell_threshold_eth
+        if direction in {"Deposit", "Withdrawal"}:
+            return self.settings.telegram_exchange_flow_threshold_eth
+        return self.settings.telegram_transfer_threshold_eth
 
     def _classify_transaction_semantics(
         self,
@@ -279,21 +294,21 @@ class WhaleMonitor:
                 if token in STABLECOIN_ADDRESSES:
                     stable_in += amount
 
-        if stable_out > 0 and weth_in >= self.settings.eth_threshold:
+        if stable_out > 0 and weth_in >= self.settings.record_threshold_eth:
             return SemanticSignal(direction="BuyETH", eth_value=weth_in)
 
-        if weth_out >= self.settings.eth_threshold and stable_in > 0:
+        if weth_out >= self.settings.record_threshold_eth and stable_in > 0:
             return SemanticSignal(direction="SellETH", eth_value=weth_out)
 
         if (
-            transfer_eth_value >= self.settings.eth_threshold
+            transfer_eth_value >= self.settings.record_threshold_eth
             and to_addr in monitored_addresses
             and stable_out > 0
         ):
             return SemanticSignal(direction="BuyETH", eth_value=transfer_eth_value)
 
         if (
-            transfer_eth_value >= self.settings.eth_threshold
+            transfer_eth_value >= self.settings.record_threshold_eth
             and from_addr in monitored_addresses
             and stable_in > 0
         ):

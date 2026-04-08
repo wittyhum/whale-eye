@@ -32,7 +32,7 @@ export default function AlertFeed() {
     }
 
     return {
-      title: "锁仓行为 / Transfer",
+      title: "🔵 巨鲸大额转账",
       color: "text-accent-blue neon-text-blue",
       bgColor: "bg-accent-blue/10",
       borderColor: "border-accent-blue/30",
@@ -49,8 +49,8 @@ export default function AlertFeed() {
            <ShieldAlert className="text-primary opacity-20" size={48} />
         </div>
         <div className="text-center">
-           <h3 className="text-sm font-black text-primary uppercase tracking-[0.4em] mb-2 animate-pulse">Scanning Mainnet...</h3>
-           <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">System Stable. No whale movement detected.</p>
+           <h3 className="text-sm font-black text-primary tracking-[0.25em] mb-2 animate-pulse">扫描以太坊主网中...</h3>
+           <p className="text-[10px] font-mono text-gray-500 tracking-widest">系统运行稳定，暂未检测到新的巨鲸异动。</p>
         </div>
       </div>
     );
@@ -61,7 +61,7 @@ export default function AlertFeed() {
       <div className="p-4 border-b border-white/5 flex items-center justify-between bg-white/2">
         <h2 className="text-xs font-black flex items-center gap-2 text-primary uppercase tracking-[0.2em]">
           <Zap size={14} className="opacity-50" />
-          资金流向语义化时间轴 / SEMANTIC TIMELINE
+          资金流向语义时间轴
         </h2>
       </div>
 
