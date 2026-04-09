@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 EXECUTION_POLL_INTERVAL_SECONDS = 5
 EXECUTION_TIMEOUT_SECONDS = 300
+SYNC_FRESHNESS_GRACE_SECONDS = 10
 TERMINAL_STATES = {
     "QUERY_STATE_COMPLETED",
     "QUERY_STATE_COMPLETED_PARTIAL",
@@ -45,6 +46,8 @@ FAILED_STATES = {
 
 
 class WhaleSyncEngine:
+    JOB_ID = "dune_whale_sync"
+
     def __init__(
         self,
         db: Database,
@@ -60,18 +63,8 @@ class WhaleSyncEngine:
         if self.scheduler.running:
             return
 
-        next_run_time = await self._resolve_next_run_time()
-
-        self.scheduler.add_job(
-            self.sync_if_needed,
-            "interval",
-            hours=self.settings.sync_interval_hours,
-            id="dune_whale_sync",
-            max_instances=1,
-            coalesce=True,
-            next_run_time=next_run_time,
-        )
         self.scheduler.start()
+        await self._schedule_next_run()
 
     async def shutdown(self) -> None:
         if self.scheduler.running:
@@ -81,8 +74,10 @@ class WhaleSyncEngine:
         last_sync_at = await asyncio.to_thread(self.db.get_last_sync_at)
         if not force and last_sync_at is not None:
             now = datetime.now(timezone.utc)
-            if now - last_sync_at < timedelta(hours=self.settings.sync_interval_hours):
+            next_due_at = last_sync_at + timedelta(hours=self.settings.sync_interval_hours)
+            if now + timedelta(seconds=SYNC_FRESHNESS_GRACE_SECONDS) < next_due_at:
                 logger.info("Skip Dune sync because the last successful sync is still fresh.")
+                await self._schedule_next_run(last_sync_at=last_sync_at)
                 return False
 
         return await self.sync_once()
@@ -95,11 +90,13 @@ class WhaleSyncEngine:
 
         if self.on_sync_success:
             await self.on_sync_success()
+        await self._schedule_next_run()
         return True
 
-    async def _resolve_next_run_time(self) -> datetime:
+    async def _resolve_next_run_time(self, last_sync_at: datetime | None = None) -> datetime:
         now = datetime.now(timezone.utc)
-        last_sync_at = await asyncio.to_thread(self.db.get_last_sync_at)
+        if last_sync_at is None:
+            last_sync_at = await asyncio.to_thread(self.db.get_last_sync_at)
         if last_sync_at is None:
             return now
 
@@ -107,6 +104,32 @@ class WhaleSyncEngine:
         if next_due_at <= now:
             return now
         return next_due_at
+
+    async def _run_scheduled_sync(self) -> None:
+        try:
+            await self.sync_if_needed(force=False)
+        finally:
+            await self._schedule_next_run()
+
+    async def _schedule_next_run(self, last_sync_at: datetime | None = None) -> None:
+        if not self.scheduler.running:
+            return
+
+        next_run_time = await self._resolve_next_run_time(last_sync_at=last_sync_at)
+        job = self.scheduler.get_job(self.JOB_ID)
+        if job is None:
+            self.scheduler.add_job(
+                self._run_scheduled_sync,
+                "date",
+                run_date=next_run_time,
+                id=self.JOB_ID,
+                replace_existing=True,
+            )
+            logger.info("Scheduled next Dune sync at %s.", next_run_time.isoformat())
+            return
+
+        self.scheduler.modify_job(self.JOB_ID, next_run_time=next_run_time)
+        logger.info("Rescheduled next Dune sync at %s.", next_run_time.isoformat())
 
     def _fetch_whale_rows(self) -> Sequence[Mapping[str, object]]:
         if DuneClient is not None and QueryBase is not None:
